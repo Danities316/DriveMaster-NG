@@ -55,7 +55,9 @@ describe("App", () => {
       vi.fn().mockResolvedValue({ ok: false, status: 401, json: async () => ({}) })
     );
     render(<App />);
-    expect(screen.getByRole("heading", { name: /Know who has paid/ })).toBeInTheDocument();
+    expect(
+      await screen.findByRole("heading", { name: /Know who has paid/ }, { timeout: 5000 })
+    ).toBeInTheDocument();
     fireEvent.click(screen.getAllByRole("button", { name: /School sign in/ })[0]!);
     expect(await screen.findByLabelText(/phone number/i)).toBeInTheDocument();
     expect(window.location.hash).toBe("#login");
@@ -68,7 +70,9 @@ describe("App", () => {
     );
     vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("offline")));
     render(<App />);
-    expect(await screen.findByRole("heading", { name: "Today's training" })).toBeInTheDocument();
+    expect(
+      await screen.findByRole("heading", { name: "Today's training" }, { timeout: 5000 })
+    ).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Money" })).not.toBeInTheDocument();
     expect(screen.queryByText("Received today")).not.toBeInTheDocument();
   });
@@ -80,7 +84,9 @@ describe("App", () => {
     );
     vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("offline")));
     render(<App />);
-    expect(await screen.findByRole("heading", { name: "My lessons" })).toBeVisible();
+    expect(
+      await screen.findByRole("heading", { name: "My lessons" }, { timeout: 5000 })
+    ).toBeVisible();
     expect(screen.getByRole("heading", { name: "Load your lessons" })).toBeVisible();
     expect(screen.queryByText(/record permitted lesson details/)).toBeNull();
     expect(screen.queryByRole("navigation", { name: "Main navigation" })).toBeNull();
@@ -111,7 +117,9 @@ describe("App", () => {
     // No network round trip needed to show this — it's the whole point
     // of the optimistic cache.
     expect(screen.getByText(SAMPLE_USER.name)).toBeInTheDocument();
-    expect(await screen.findByRole("heading", { name: /Hello, Ada/i })).toBeInTheDocument();
+    expect(
+      await screen.findByRole("heading", { name: /Hello, Ada/i }, { timeout: 5000 })
+    ).toBeInTheDocument();
 
     // Let the background fetchCurrentUser() settle (it resolves from the
     // local cache since the network call rejects) before the test ends,

@@ -1,22 +1,61 @@
 import type { TrainingDestination } from "./features/dashboard/SchoolDay";
-import { TrainingPage } from "./features/training/TrainingPage";
 import { startTrainingSync } from "./features/training/trainingLocal";
-import { FleetPage } from "./features/fleet/FleetPage";
-import { useEffect, useRef, useState } from "react";
+import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import { AppShell, type Section } from "./components/AppShell";
-import { Dashboard } from "./features/dashboard/Dashboard";
 import type { AuthenticatedUser, StudentWithBalance } from "@drivemaster/shared";
 import { LoginForm } from "./components/LoginForm";
 import { fetchCurrentUser, getCachedUser, logout } from "./lib/auth";
-import { StudentListPage } from "./features/students/StudentListPage";
-import { StudentDetailPage } from "./features/students/StudentDetailPage";
-import { StudentFormPage } from "./features/students/StudentFormPage";
-import { EditStudentPage } from "./features/students/EditStudentPage";
 import { ConnectionStatus } from "./components/ConnectionStatus";
 import { startSync } from "./sync/controller";
-import { HomePage } from "./features/home/HomePage";
-import { PublicEnrollmentPage } from "./features/training/PublicEnrollmentPage";
-import { MorePage } from "./components/MorePage";
+
+const TrainingPage = lazy(() =>
+  import("./features/training/TrainingPage").then((module) => ({ default: module.TrainingPage }))
+);
+const FleetPage = lazy(() =>
+  import("./features/fleet/FleetPage").then((module) => ({ default: module.FleetPage }))
+);
+const Dashboard = lazy(() =>
+  import("./features/dashboard/Dashboard").then((module) => ({ default: module.Dashboard }))
+);
+const StudentListPage = lazy(() =>
+  import("./features/students/StudentListPage").then((module) => ({
+    default: module.StudentListPage
+  }))
+);
+const StudentDetailPage = lazy(() =>
+  import("./features/students/StudentDetailPage").then((module) => ({
+    default: module.StudentDetailPage
+  }))
+);
+const StudentFormPage = lazy(() =>
+  import("./features/students/StudentFormPage").then((module) => ({
+    default: module.StudentFormPage
+  }))
+);
+const EditStudentPage = lazy(() =>
+  import("./features/students/EditStudentPage").then((module) => ({
+    default: module.EditStudentPage
+  }))
+);
+const HomePage = lazy(() =>
+  import("./features/home/HomePage").then((module) => ({ default: module.HomePage }))
+);
+const PublicEnrollmentPage = lazy(() =>
+  import("./features/training/PublicEnrollmentPage").then((module) => ({
+    default: module.PublicEnrollmentPage
+  }))
+);
+const MorePage = lazy(() =>
+  import("./components/MorePage").then((module) => ({ default: module.MorePage }))
+);
+
+function PageLoading() {
+  return (
+    <main className="flex min-h-screen items-center justify-center">
+      <p className="text-slate-500">Loading...</p>
+    </main>
+  );
+}
 
 type AuthState =
   { status: "loading" } | { status: "loggedOut" } | { status: "loggedIn"; user: AuthenticatedUser };
@@ -131,7 +170,11 @@ export function App() {
     /^#enroll\/([^/?#]+)$/.exec(publicRoute) ??
     /^\/enroll\/([^/?#]+)\/?$/.exec(window.location.pathname);
   if (enrollmentRoute)
-    return <PublicEnrollmentPage key={enrollmentRoute[1]} schoolId={enrollmentRoute[1]!} />;
+    return (
+      <Suspense fallback={<PageLoading />}>
+        <PublicEnrollmentPage key={enrollmentRoute[1]!} schoolId={enrollmentRoute[1]!} />
+      </Suspense>
+    );
   if (
     ["#home", "#benefits", "#walkthrough", "#questions", "#home-main", "#mileage-fuel"].includes(
       publicRoute
@@ -139,10 +182,12 @@ export function App() {
     (authState.status !== "loggedIn" && publicRoute !== "#login" && publicRoute !== "#app")
   ) {
     return (
-      <HomePage
-        authenticated={authState.status === "loggedIn"}
-        onSignIn={() => navigatePublic(authState.status === "loggedIn" ? "#app" : "#login")}
-      />
+      <Suspense fallback={<PageLoading />}>
+        <HomePage
+          authenticated={authState.status === "loggedIn"}
+          onSignIn={() => navigatePublic(authState.status === "loggedIn" ? "#app" : "#login")}
+        />
+      </Suspense>
     );
   }
 
@@ -179,7 +224,11 @@ export function App() {
 
   const { user } = authState;
   if (user.role === "STUDENT" || user.role === "INSTRUCTOR")
-    return <TrainingPage key={user.id} user={user} onLogout={() => void handleLogout()} />;
+    return (
+      <Suspense fallback={<PageLoading />}>
+        <TrainingPage key={user.id} user={user} onLogout={() => void handleLogout()} />
+      </Suspense>
+    );
 
   return (
     <AppShell
@@ -199,95 +248,97 @@ export function App() {
       onNavigate={navigateSection}
       onLogout={() => void handleLogout()}
     >
-      {view.screen === "dashboard" || view.screen === "payments" ? (
-        <Dashboard
-          key={view.screen}
-          user={user}
-          paymentsOnly={view.screen === "payments"}
-          onAdd={() => setView({ screen: "create" })}
-          onStudents={() => setView({ screen: "list" })}
-          onStudent={(studentId) => setView({ screen: "detail", studentId })}
-          onPayments={() => setView({ screen: "payments" })}
-          onSync={() => setView({ screen: "sync" })}
-          onTraining={(destination) => setView({ screen: "training", ...destination })}
-          onFleet={() => setView({ screen: "fleet" })}
-        />
-      ) : null}
-      {view.screen === "training" && (
-        <TrainingPage
-          user={user}
-          initialStudentId={view.studentId}
-          initialTab={view.tab}
-          initialFilter={view.filter}
-          onAddStudent={() => setView({ screen: "create" })}
-          onVehicles={() => setView({ screen: "fleet" })}
-        />
-      )}
-      {view.screen === "fleet" ? <FleetPage user={user} /> : null}
-      {view.screen === "sync" ? (
-        <div className="dashboard-content">
-          <div className="dashboard-heading">
-            <div>
-              <p className="dm-eyebrow">YOUR SAVED WORK</p>
-              <h1>Saved records</h1>
-              <p>Records saved on this device that are waiting to be sent or need attention.</p>
+      <Suspense fallback={<PageLoading />}>
+        {view.screen === "dashboard" || view.screen === "payments" ? (
+          <Dashboard
+            key={view.screen}
+            user={user}
+            paymentsOnly={view.screen === "payments"}
+            onAdd={() => setView({ screen: "create" })}
+            onStudents={() => setView({ screen: "list" })}
+            onStudent={(studentId) => setView({ screen: "detail", studentId })}
+            onPayments={() => setView({ screen: "payments" })}
+            onSync={() => setView({ screen: "sync" })}
+            onTraining={(destination) => setView({ screen: "training", ...destination })}
+            onFleet={() => setView({ screen: "fleet" })}
+          />
+        ) : null}
+        {view.screen === "training" && (
+          <TrainingPage
+            user={user}
+            initialStudentId={view.studentId}
+            initialTab={view.tab}
+            initialFilter={view.filter}
+            onAddStudent={() => setView({ screen: "create" })}
+            onVehicles={() => setView({ screen: "fleet" })}
+          />
+        )}
+        {view.screen === "fleet" ? <FleetPage user={user} /> : null}
+        {view.screen === "sync" ? (
+          <div className="dashboard-content">
+            <div className="dashboard-heading">
+              <div>
+                <p className="dm-eyebrow">YOUR SAVED WORK</p>
+                <h1>Saved records</h1>
+                <p>Records saved on this device that are waiting to be sent or need attention.</p>
+              </div>
+            </div>
+            <div className="dm-panel sync-panel">
+              <p>
+                Student, payment and vehicle records are shown below. Training records stay in their
+                existing ordered list so Start is always sent before Finish.
+              </p>
+              <button className="dm-secondary" onClick={() => setView({ screen: "training" })}>
+                Check saved training records
+              </button>
+              <ConnectionStatus schoolId={user.schoolId} />
             </div>
           </div>
-          <div className="dm-panel sync-panel">
-            <p>
-              Student, payment and vehicle records are shown below. Training records stay in their
-              existing ordered list so Start is always sent before Finish.
-            </p>
-            <button className="dm-secondary" onClick={() => setView({ screen: "training" })}>
-              Check saved training records
-            </button>
-            <ConnectionStatus schoolId={user.schoolId} />
-          </div>
-        </div>
-      ) : null}
-      {view.screen === "more" ? (
-        <MorePage
-          user={user}
-          onSetup={() => setView({ screen: "training", tab: "setup", fromMore: true })}
-          onFleet={() => setView({ screen: "fleet" })}
-          onSavedRecords={() => setView({ screen: "sync" })}
-        />
-      ) : null}
-      {view.screen === "list" ? (
-        <StudentListPage
-          schoolId={user.schoolId}
-          onSelectStudent={(studentId) => setView({ screen: "detail", studentId })}
-          onAddStudent={() => setView({ screen: "create" })}
-        />
-      ) : null}
+        ) : null}
+        {view.screen === "more" ? (
+          <MorePage
+            user={user}
+            onSetup={() => setView({ screen: "training", tab: "setup", fromMore: true })}
+            onFleet={() => setView({ screen: "fleet" })}
+            onSavedRecords={() => setView({ screen: "sync" })}
+          />
+        ) : null}
+        {view.screen === "list" ? (
+          <StudentListPage
+            schoolId={user.schoolId}
+            onSelectStudent={(studentId) => setView({ screen: "detail", studentId })}
+            onAddStudent={() => setView({ screen: "create" })}
+          />
+        ) : null}
 
-      {view.screen === "detail" ? (
-        <StudentDetailPage
-          viewer={user}
-          studentId={view.studentId}
-          onBack={() => setView({ screen: "list" })}
-          onEdit={(studentId) => setView({ screen: "edit", studentId })}
-          canRecordPayment={true}
-          onTraining={(studentId) => setView({ screen: "training", studentId })}
-        />
-      ) : null}
+        {view.screen === "detail" ? (
+          <StudentDetailPage
+            viewer={user}
+            studentId={view.studentId}
+            onBack={() => setView({ screen: "list" })}
+            onEdit={(studentId) => setView({ screen: "edit", studentId })}
+            canRecordPayment={true}
+            onTraining={(studentId) => setView({ screen: "training", studentId })}
+          />
+        ) : null}
 
-      {view.screen === "create" ? (
-        <StudentFormPage
-          schoolId={user.schoolId}
-          onSaved={handleSaved}
-          onCancel={() => setView({ screen: "list" })}
-        />
-      ) : null}
+        {view.screen === "create" ? (
+          <StudentFormPage
+            schoolId={user.schoolId}
+            onSaved={handleSaved}
+            onCancel={() => setView({ screen: "list" })}
+          />
+        ) : null}
 
-      {view.screen === "edit" ? (
-        <EditStudentPage
-          studentId={view.studentId}
-          schoolId={user.schoolId}
-          onSaved={handleSaved}
-          onCancel={() => setView({ screen: "detail", studentId: view.studentId })}
-        />
-      ) : null}
+        {view.screen === "edit" ? (
+          <EditStudentPage
+            studentId={view.studentId}
+            schoolId={user.schoolId}
+            onSaved={handleSaved}
+            onCancel={() => setView({ screen: "detail", studentId: view.studentId })}
+          />
+        ) : null}
+      </Suspense>
     </AppShell>
   );
 }
