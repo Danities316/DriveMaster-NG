@@ -1,0 +1,414 @@
+// DriveMaster NG — Prisma schema
+//
+// UNIT 1 SCOPE:
+// This schema establishes the finalized multi-tenant domain model (PRD
+// §9, §26.2-§26.14, §28). It does NOT implement authentication,
+// authorization enforcement, synchronization logic, booking-conflict
+// logic, fuel-discrepancy calculation, or payment correction workflows —
+// those are later units. Tenant isolation here is expressed as a
+// `schoolId` column + index on every tenant-owned table; the backend
+// service/data-access layer (not this schema) is responsible for actually
+// enforcing that a request only touches its own school's rows.
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+// ==================================================
+// ENUMS
+// ==================================================
+
+enum UserRole {
+  STUDENT
+  OWNER
+  RECEPTIONIST
+  INSTRUCTOR
+}
+
+enum PaymentMethod {
+  CASH
+  BANK_TRANSFER
+  POS
+}
+
+enum VehicleStatus {
+  ACTIVE
+  MAINTENANCE
+  INACTIVE
+}
+
+enum BookingStatus {
+  SCHEDULED
+  COMPLETED
+  CANCELLED
+  NO_SHOW
+}
+
+enum MutationAction {
+  CREATE
+  UPDATE
+  DELETE
+}
+
+enum MutationStatus {
+  PENDING
+  SYNCING
+  FAILED
+  CONFLICT
+}
+
+/// The set of entities that participate in offline outbox synchronization.
+/// Sourced directly from PRD §12 ("entity: student | payment | booking |
+/// fuel_log") — School, User, and Vehicle are managed through
+/// non-offline-first flows in the current MVP scope and are intentionally
+/// excluded here. If a future unit needs offline vehicle/user/school
+/// mutations, this enum must be extended with Founder/PM approval since
+/// it is part of the sync API contract.
+enum MutationEntity {
+  STUDENT
+  PAYMENT
+  BOOKING
+  FUEL_LOG
+}
+
+// ==================================================
+// TENANT / IDENTITY
+// ==================================================
+
+model School {
+  enrollmentApplications EnrollmentApplication[]
+  school_cac_rc String? @unique
+  frsc_accreditation_number String?
+  profileVersion Int @default(0)
+  id        String   @id @default(uuid())
+  name      String
+  phone     String
+  address   String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  trainingRecords TrainingRecord[]
+  trainingReceipts TrainingReceipt[]
+  users           User[]
+  students        Student[]
+  payments        Payment[]
+  vehicles        Vehicle[]
+  mileageLogs     MileageLog[]
+  fuelLogs        FuelLog[]
+  sessionBookings SessionBooking[]
+  outboxMutations OutboxMutation[]
+  auditLogs       AuditLog[]
+  syncReceipts    SyncReceipt[]
+  syncChanges     SyncChange[]
+
+  @@map("schools")
+}
+
+model User {
+  drivers_license_number String?
+  nin String?
+  permitExpiryDate String?
+  profileVersion Int @default(0)
+  studentId String? @unique
+  student Student? @relation(fields: [studentId], references: [id], onDelete: Restrict)
+  id           String   @id @default(uuid())
+  schoolId     String
+  name         String
+  /// Primary login identifier (Unit 2: phone-first authentication).
+  /// Globally unique (not per-school) because the login form collects
+  /// only phone + password with no school selector -- see the Unit 2
+  /// report for why this necessary, minimal touch to the Unit 1 schema
+  /// was made instead of inventing a school-selection step.
+  phone        String   @unique
+  email        String?
+  passwordHash String
+  role         UserRole
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  school             School           @relation(fields: [schoolId], references: [id], onDelete: Restrict)
+  instructorBookings SessionBooking[] @relation("BookingInstructor")
+  auditLogs          AuditLog[]
+
+  // Email is optional and, where present, unique per school rather than
+  // globally -- a person could plausibly hold accounts at two different
+  // schools with the same email. Phone is the authoritative login
+  // identifier (see above); email is a secondary profile/contact field.
+  @@unique([schoolId, email])
+  @@index([schoolId])
+  @@map("users")
+}
+
+// ==================================================
+// STUDENT / PAYMENT
+// ==================================================
+
+model Student {
+  enrollmentApplications EnrollmentApplication[]
+  portalUser User?
+  version        Int      @default(0)
+  id             String   @id @default(uuid())
+  schoolId       String
+  name           String
+  phone          String
+  licenseNumber  String?
+  enrollmentDate DateTime
+  totalTuition   Decimal  @db.Decimal(12, 2)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  school   School           @relation(fields: [schoolId], references: [id], onDelete: Restrict)
+  payments Payment[]
+  bookings SessionBooking[]
+
+  @@index([schoolId])
+  @@map("students")
+}
+
+model EnrollmentApplication {
+  id String @id
+  schoolId String
+  name String
+  phone String
+  details Json
+  packageId String
+  packageSnapshot Json
+  rulesSnapshot Json
+  requestHash String
+  status String @default("PENDING_PAYMENT")
+  version Int @default(0)
+  studentId String?
+  reviewReason String?
+  consentAt DateTime
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  school School @relation(fields: [schoolId], references: [id], onDelete: Restrict)
+  student Student? @relation(fields: [studentId], references: [id], onDelete: Restrict)
+  @@index([schoolId, status, createdAt])
+  @@index([schoolId, phone])
+  @@map("enrollment_applications")
+}
+
+// Mutations and their acknowledgements commit atomically with business records.
+model SyncReceipt {
+  school School @relation(fields: [schoolId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  mutationId String @id
+  schoolId String
+  deviceId String
+  requestHash String
+  result Json
+  createdAt DateTime @default(now())
+  @@index([schoolId], map: "sync_receipts_school_idx")
+  @@map("sync_receipts")
+}
+
+// Written by PostgreSQL triggers, including writes through the existing CRUD API.
+model SyncChange {
+  school School @relation(fields: [schoolId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  id BigInt @id @default(autoincrement())
+  schoolId String
+  entity String
+  action String
+  record Json
+  @@index([schoolId, id], map: "sync_changes_school_cursor_idx")
+  @@map("sync_changes")
+}
+
+/// Append-only financial record. No update/delete workflow exists in the
+/// application layer for this table — corrections are modeled as new
+/// compensating Payment rows in a later unit (PRD §26.14), not schema
+/// changes here.
+model Payment {
+  id          String        @id @default(uuid())
+  schoolId    String
+  studentId   String
+  amount      Decimal       @db.Decimal(12, 2)
+  paymentDate DateTime
+  method      PaymentMethod @default(CASH)
+  currency    String        @default("NGN")
+  reference   String?
+  createdAt   DateTime      @default(now())
+
+  school  School  @relation(fields: [schoolId], references: [id], onDelete: Restrict)
+  student Student @relation(fields: [studentId], references: [id], onDelete: Restrict)
+
+  @@index([schoolId, studentId])
+  @@map("payments")
+}
+
+// ==================================================
+// VEHICLE / FUEL
+// ==================================================
+
+model Vehicle {
+  fuelBenchmark Json?
+  benchmarkVersion Int @default(0)
+  id          String   @id @default(uuid())
+  schoolId    String
+  plateNumber String
+  model       String
+  status      VehicleStatus
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  school   School           @relation(fields: [schoolId], references: [id], onDelete: Restrict)
+  mileageLogs MileageLog[]
+  fuelLogs FuelLog[]
+  bookings SessionBooking[]
+
+  @@index([schoolId])
+  @@map("vehicles")
+}
+
+/// Append-only historical record. Consumption flags are derived per full-tank
+/// cycle using the current vehicle benchmark. The legacy discrepancyAlert
+/// field is not used for those assessments.
+model FuelLog {
+  driverName       String?
+  notes            String?
+  receiptReference String?
+  fullTank         Boolean?
+  recordedById     String?
+  id               String   @id @default(uuid())
+  schoolId         String
+  vehicleId        String
+  date             DateTime
+  odometer         Int
+  litres           Decimal  @db.Decimal(8, 2)
+  cost             Decimal  @db.Decimal(12, 2)
+  discrepancyAlert Boolean  @default(false)
+  createdAt        DateTime @default(now())
+
+  school  School  @relation(fields: [schoolId], references: [id], onDelete: Restrict)
+  vehicle Vehicle @relation(fields: [vehicleId], references: [id], onDelete: Restrict)
+
+  @@index([schoolId, vehicleId])
+  @@unique([schoolId, vehicleId, receiptReference])
+  @@map("fuel_logs")
+}
+
+// ==================================================
+// SESSION BOOKING
+// ==================================================
+
+/// Conflict detection (vehicle/instructor overlap) is NOT implemented in
+/// Unit 1 (PRD §26.4/§26.6, deferred to Unit 9). This model only
+/// establishes the schema and the indexes conflict queries will need.
+model SessionBooking {
+  id              String        @id @default(uuid())
+  schoolId        String
+  studentId       String
+  instructorId    String
+  vehicleId       String
+  startTime       DateTime
+  /// Default of 60 matches the PRD-approved business default (§26.4:
+  /// "Default session duration is 60 minutes") — not an invented value,
+  /// it is the locked default expressed at the schema level. The booking
+  /// workflow may still override it per booking.
+  durationMinutes Int           @default(60)
+  status          BookingStatus @default(SCHEDULED)
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  school     School  @relation(fields: [schoolId], references: [id], onDelete: Restrict)
+  student    Student @relation(fields: [studentId], references: [id], onDelete: Restrict)
+  vehicle    Vehicle @relation(fields: [vehicleId], references: [id], onDelete: Restrict)
+  instructor User    @relation("BookingInstructor", fields: [instructorId], references: [id], onDelete: Restrict)
+
+  @@index([schoolId, vehicleId, startTime])
+  @@index([schoolId, instructorId, startTime])
+  @@map("session_bookings")
+}
+
+// ==================================================
+// OUTBOX / SYNC FOUNDATION
+// ==================================================
+
+/// Server-side representation of a client outbox mutation. The
+/// synchronization engine itself (push/pull/conflict resolution) is NOT
+/// implemented in Unit 1 — this table only establishes durable, idempotent
+/// storage for mutations once a later unit starts writing to it.
+model OutboxMutation {
+  id         String         @id @default(uuid())
+  /// Client-generated idempotency key (PRD §26.7). Must be globally
+  /// unique so redelivery of the same mutation never creates a duplicate
+  /// business record. Deliberately has no @default — the server must
+  /// never generate this value itself.
+  mutationId String         @unique
+  deviceId   String
+  schoolId   String
+  entity     MutationEntity
+  action     MutationAction
+  payload    Json
+  createdAt  DateTime       @default(now())
+  retryCount Int            @default(0)
+  status     MutationStatus @default(PENDING)
+
+  school School @relation(fields: [schoolId], references: [id], onDelete: Restrict)
+
+  @@index([schoolId, status])
+  @@index([deviceId])
+  @@map("outbox_mutations")
+}
+
+model AuditLog {
+  id        String   @id @default(uuid())
+  schoolId  String
+  userId    String
+  action    String
+  entity    String
+  entityId  String
+  timestamp DateTime @default(now())
+  metadata  Json?
+
+  school School @relation(fields: [schoolId], references: [id], onDelete: Restrict)
+  user   User   @relation(fields: [userId], references: [id], onDelete: Restrict)
+
+  @@index([schoolId, entity, entityId])
+  @@map("audit_logs")
+}
+
+model MileageLog {
+  id String @id
+  schoolId String
+  vehicleId String
+  date DateTime
+  odometer Int
+  driverName String
+  notes String?
+  recordedById String
+  createdAt DateTime @default(now())
+  school School @relation(fields: [schoolId], references: [id], onDelete: Restrict)
+  vehicle Vehicle @relation(fields: [vehicleId], references: [id], onDelete: Restrict)
+  @@index([schoolId, vehicleId, date])
+  @@map("mileage_logs")
+}
+
+model TrainingRecord {
+  id String @id
+  schoolId String
+  kind String
+  version Int @default(0)
+  data Json
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  school School @relation(fields: [schoolId], references: [id], onDelete: Restrict)
+  @@index([schoolId, kind])
+  @@map("training_records")
+}
+model TrainingReceipt {
+  id String @id
+  schoolId String
+  actorId String
+  requestHash String
+  createdAt DateTime @default(now())
+  school School @relation(fields: [schoolId], references: [id], onDelete: Restrict)
+  @@index([schoolId])
+  @@map("training_receipts")
+}

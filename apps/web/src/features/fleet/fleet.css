@@ -1,0 +1,234 @@
+.fleet-controls {
+  padding: 24px;
+  display: flex;
+  gap: 15px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+.fleet-controls > label {
+  font-weight: 600;
+  font-size: 14px;
+}
+.fleet-controls select {
+  flex: 1;
+  min-width: 200px;
+  min-height: 46px;
+  border: 1px solid #c0d9e5;
+  border-radius: 7px;
+  padding: 10px;
+  background: white;
+  font-size: 14px;
+}
+.fleet-controls p {
+  flex-basis: 100%;
+  font-size: 13px;
+  color: #3981a3;
+}
+.fleet-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.fleet-form-panel {
+  padding: 25px;
+}
+.fleet-form-panel h2 {
+  font-size: 21px;
+  font-weight: 600;
+  margin-bottom: 22px;
+}
+.fleet-form {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 20px;
+}
+.fleet-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: 14px;
+  font-weight: 500;
+}
+.fleet-form input,
+.fleet-form select,
+.fleet-form textarea {
+  border: 1px solid #c4dce7;
+  border-radius: 7px;
+  padding: 11px;
+  min-height: 47px;
+  font-size: 16px;
+  background: #fff;
+  width: 100%;
+}
+.fleet-form small {
+  font-weight: 400;
+  font-size: 12px;
+  color: #4090b5;
+}
+.fleet-wide {
+  grid-column: 1/-1;
+}
+.fleet-success {
+  padding: 15px;
+  color: #175673;
+  background: #e8f3f8;
+  border-radius: 8px;
+  margin-bottom: 20px;
+  font-size: 14px;
+}
+.fleet-error {
+  color: #a23730;
+  font-size: 13px;
+}
+.fleet-detail {
+  display: block;
+  font-size: 12px;
+  line-height: 1.6;
+  margin-top: 5px;
+}
+.fleet-notes {
+  white-space: normal;
+  max-width: 260px;
+  min-width: 160px;
+  overflow-wrap: anywhere;
+}
+.fleet-page .dm-table td {
+  font-size: 13px;
+}
+.fleet-page .dm-table th {
+  font-size: 12px;
+}
+@media (max-width: 700px) {
+  .fleet-form {
+    grid-template-columns: 1fr;
+  }
+  .fleet-form-panel,
+  .fleet-controls {
+    padding: 18px;
+  }
+  .fleet-controls select {
+    min-width: 0;
+    width: 100%;
+    flex-basis: 100%;
+  }
+  .fleet-actions button {
+    flex: 1;
+  }
+  .fleet-controls .fleet-actions {
+    width: 100%;
+  }
+}
+
+.fleet-consumption-note {
+  padding: 0 24px 20px;
+  color: #3981a3;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.fleet-review-summary {
+  padding: 0 24px 20px;
+  display: grid;
+  gap: 12px;
+  font-size: 14px;
+}
+.fleet-review-summary label {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 44px;
+}
+.fleet-review-summary p,
+.fleet-consumption-help {
+  color: #3981a3;
+  font-size: 13px;
+  line-height: 1.6;
+  margin: 14px 0;
+}
+.fleet-assessment {
+  min-width: 240px;
+  white-space: normal;
+}
+.fleet-flag {
+  color: #963f16;
+  background: #fff0dd;
+  padding: 5px 8px;
+  border-radius: 5px;
+  display: inline-block;
+}
+.fleet-benchmark-summary {
+  overflow-wrap: anywhere;
+}
+.fuel-usage-cards,
+.fleet-history-cards {
+  padding: 18px;
+  display: grid;
+  gap: 18px;
+}
+.fuel-usage-vehicle,
+.fleet-history-card {
+  min-width: 0;
+  padding: 18px;
+  border: 1px solid #cbd5e1;
+  border-radius: 10px;
+  overflow-wrap: anywhere;
+}
+.fuel-usage-vehicle h3,
+.fleet-history-card h3 {
+  font-size: 1.15rem;
+  font-weight: 650;
+}
+.fuel-usage-cycle {
+  margin-top: 18px;
+  padding: 16px;
+  background: #f8fafc;
+  border-radius: 8px;
+}
+.fuel-usage-cycle h4 {
+  font-weight: 650;
+  font-size: 1.1rem;
+}
+.fuel-usage-attention {
+  border-left: 4px solid #a16207;
+}
+.fuel-practical-values {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 160px), 1fr));
+  gap: 16px;
+  margin: 16px 0;
+}
+.fuel-practical-values dd {
+  margin: 4px 0 0;
+  font-weight: 650;
+  font-size: 1.1rem;
+}
+.fuel-usage-cards p,
+.fleet-history-cards p {
+  margin: 10px 0;
+  line-height: 1.6;
+}
+.fleet-page summary {
+  min-height: 48px;
+  padding: 12px 0;
+  cursor: pointer;
+}
+.fleet-page button {
+  min-height: 48px;
+}
+.fleet-page input,
+.fleet-page select,
+.fleet-page textarea {
+  min-width: 0;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+.fleet-benchmark-details {
+  margin: 18px 0;
+}
+@media (max-width: 600px) {
+  .fleet-history-card,
+  .fuel-usage-vehicle,
+  .fuel-usage-cycle {
+    padding: 12px;
+  }
+}

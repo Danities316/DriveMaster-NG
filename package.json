@@ -1,0 +1,39 @@
+{
+  "name": "drivemaster-ng",
+  "type": "module",
+  "private": true,
+  "version": "0.0.0",
+  "description": "DriveMaster NG monorepo — offline-first PWA for Nigerian driving schools",
+  "workspaces": [
+    "apps/web",
+    "apps/api",
+    "shared"
+  ],
+  "scripts": {
+    "dev:web": "npm run dev --workspace=apps/web",
+    "dev:api": "npm run dev --workspace=apps/api",
+    "build": "npm run build --workspace=shared && npm run build --workspace=apps/api && npm run build --workspace=apps/web",
+    "build:shared": "npm run build --workspace=shared",
+    "build:web": "npm run build --workspace=apps/web",
+    "build:api": "npm run build --workspace=apps/api",
+    "typecheck": "npm run typecheck --workspace=shared && npm run typecheck --workspace=apps/api && npm run typecheck --workspace=apps/web",
+    "test": "npm run test --workspace=shared && npm run test --workspace=apps/api && npm run test --workspace=apps/web",
+    "lint": "eslint .",
+    "format": "prettier --write .",
+    "format:check": "prettier --check ."
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.16.0",
+    "@typescript-eslint/eslint-plugin": "^8.18.0",
+    "@typescript-eslint/parser": "^8.18.0",
+    "eslint": "^9.16.0",
+    "eslint-config-prettier": "^9.1.0",
+    "eslint-plugin-react-hooks": "^5.1.0",
+    "eslint-plugin-react-refresh": "^0.4.16",
+    "prettier": "^3.4.2",
+    "typescript": "^5.7.2"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

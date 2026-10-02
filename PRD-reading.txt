@@ -1,0 +1,477 @@
+VERSION 1.2 — ARCHITECTURE DECISIONS LOCKED
+DriveMaster NGPRD v1.1
+Product Requirements Document & Master Technical Execution SpecificationMVP Target: 30-Day Build and DeploymentPlatform: Offline-First Progressive Web App (PWA)Target Market: Nigerian Driving Schools
+Document Control
+Item
+Value
+Product
+DriveMaster NG
+Version
+1.1
+Document Type
+PRD + Master Technical Execution Specification
+Status
+MVP Execution Baseline
+Primary Product Owner
+Founder
+Project Manager / Product Manager
+ChatGPT
+Senior Software Engineer
+Claude AI
+MVP Delivery Target
+30 days
+Primary Platform
+Offline-first PWA
+Local Data Layer
+Dexie / IndexedDB
+Target Market
+Nigeria driving schools
+1. Product Vision
+DriveMaster NG is an offline-first PWA for Nigerian driving schools. It is designed to reduce cash leakage, improve visibility into student payments, control vehicle/fuel claims, manage driving-session scheduling, and generate dynamic WhatsApp receipts.
+The product must remain useful under intermittent 2G/3G connectivity and dead zones. Local-first operation is a core product requirement, not merely an implementation detail.
+2. Product Principles
+Offline-first: local IndexedDB is the immediate operational source of truth.
+Network agnostic: core workflows must continue when the internet is unavailable.
+Zero data loss goal: user actions are persisted locally before synchronization.
+Human-controlled architecture: high-level architecture, schemas, state boundaries, APIs, and business rules remain under human governance.
+Bounded AI implementation: Claude AI implements independently testable units and must not redesign architecture without approval.
+Mobile-first: optimize for low-cost Android devices and outdoor/daylight use.
+Simple operations: common actions should require minimal steps and clear feedback.
+MVP discipline: only features required to validate the core product proposition belong in the 30-day MVP.
+3. Target Users
+User
+Primary Needs
+Driving School Proprietor / Owner
+Visibility into money, students, vehicles, staff activity, and business operations.
+Front Desk / Receptionist
+Register students, record payments, manage bookings, and send receipts.
+Driving Instructor
+View/manage assigned sessions and relevant student/vehicle information.
+4. Core Problems to Solve
+Cash/payment leakage and weak visibility into student payment balances.
+Difficulty tracking student tuition and outstanding balances.
+Vehicle/fuel claims that are difficult to verify against mileage.
+Scheduling conflicts involving vehicles and driving sessions.
+Poor operational continuity when internet connectivity fails.
+Manual or inconsistent payment receipt communication through WhatsApp.
+5. MVP Scope
+The following capabilities form the proposed MVP baseline. Items not explicitly included below should not be added during the 30-day build without Product Owner approval.
+School/account setup sufficient for a pilot driving school.
+User access and basic roles required for MVP operation.
+Student registration and student records.
+Tuition/payment recording and balance calculation.
+Session booking with vehicle conflict protection.
+Vehicle records.
+Fuel logging and discrepancy flagging.
+Dynamic WhatsApp receipt link generation.
+Offline-first local persistence for core workflows.
+Durable outbox mutation queue and background synchronization.
+Server synchronization endpoint.
+Mobile-first responsive UI.
+Production PWA deployment.
+6. Explicit Non-MVP Scope
+The source PRD does not define the following as completed MVP requirements. They must therefore remain out of scope unless explicitly approved during execution:
+Advanced accounting.
+Payroll.
+Vehicle maintenance management.
+Complex financial reporting.
+Online payment gateway integration.
+Native Android/iOS applications.
+Advanced analytics/BI.
+Automated marketing campaigns.
+Complex subscription/billing automation.
+Multi-branch enterprise management.
+These may become post-MVP roadmap items after pilot validation.
+7. MVP User Journeys
+7.1 Register Student
+Authorized staff opens the student registration workflow.
+Staff enters required student information and tuition amount.
+App validates the input.
+Record is written to IndexedDB first.
+UI updates immediately.
+A CREATE mutation is added to the outbox.
+When connectivity is available, the mutation is synchronized with the backend.
+7.2 Record Payment
+Staff opens the student record.
+Staff records payment amount and payment mode.
+Payment is persisted locally first.
+Student balance updates immediately.
+Payment mutation enters the outbox.
+A dynamic WhatsApp receipt link is generated.
+7.3 Book Driving Session
+Staff selects student, vehicle, and session time.
+System checks for an overlapping booking for the selected vehicle.
+If a conflict exists, creation is blocked.
+If valid, the booking is persisted locally and queued for synchronization.
+7.4 Record Fuel
+Authorized staff records vehicle, odometer reading, and fuel cost.
+System compares the reading against the relevant previous odometer value.
+The discrepancy rule is evaluated.
+The fuel log is stored locally first.
+If suspicious according to the approved rule, a visible alert is generated.
+7.5 Synchronize
+App detects network availability.
+Pending mutations are processed sequentially.
+Server acknowledges processed mutation IDs.
+Successful mutations are marked complete/removed from the active outbox.
+Failed mutations remain recoverable and retryable.
+8. Roles and Permissions
+The original PRD names proprietor, receptionist, and instructor users but does not fully define permissions. For MVP, the implementation must use explicit roles rather than implicit access.
+Role
+MVP Responsibility
+Owner
+Full school-level visibility and management.
+Receptionist
+Student, payment, booking, receipt, and operational data entry.
+Instructor
+Access to assigned/relevant sessions and student/vehicle information required to perform duties.
+Exact permission granularity must be approved before authentication/authorization implementation. Claude must not invent permissions.
+9. Domain Model
+Entity
+Key Fields / Purpose
+Student
+id, name, phone, totalTuition, calculated balance.
+Payment
+id, studentId, amount, mode.
+SessionBooking
+id, studentId, vehicleId, startTime, status; duration/instructor assignment require explicit schema decision before implementation.
+Vehicle
+id, registrationNo, status.
+FuelLog
+id, vehicleId, odometerReading, fuelCost.
+OutboxMutation
+id, entity, action, payload, timestamp, status, retryCount.
+The source PRD references a duration window in the scheduling conflict rule but the displayed SessionBooking model does not define duration. This must be resolved before Unit 3/booking implementation.
+10. Core Business Rules
+10.1 Ledger Balance Integrity
+Student.balanceRemaining = Student.totalTuition − Σ(Payment.amount).
+10.2 Schedule Conflict Guard
+A SessionBooking cannot be created if the selected vehicle has an overlapping start-time + duration window.
+The exact duration field/value must be established before implementation.
+10.3 Fuel Discrepancy Flagging
+The source PRD currently states that a FuelLog triggers discrepancyAlert = true if the distance delta between odometer readings is less than 10 km per ₦5,000 fuel claimed. The exact mathematical interpretation is ambiguous and must be approved before Claude implements the rule.
+No AI agent may reinterpret this rule without Product Owner approval.
+
+11. Offline-First Architecture
+All core reads and writes resolve against local IndexedDB before asynchronous background synchronization.
+React/UI layer binds to local data.
+Dexie/IndexedDB is the local source of truth for immediate operations.
+Local writes optimistically update the UI.
+Mutations are appended to a durable outbox.
+A sync controller processes pending mutations when connectivity is available.
+The cloud backend provides durable synchronization and cross-device persistence.
+Reference flow: UI Action → Dexie write → optimistic UI update → Outbox Queue → Sync Controller → HTTPS REST Backend.
+12. Sync Protocol
+The current synchronization endpoint is POST /api/v1/sync/batch.
+Mutation structure:
+id: UUID v4
+entity: student | payment | booking | fuel_log
+action: CREATE | UPDATE | DELETE
+payload: entity payload
+timestamp: epoch milliseconds
+status: PENDING | SYNCING | FAILED
+retryCount: integer
+The current response contract includes success, processedIds, and conflicts.
+12.1 Required Sync Decisions Before Production
+Idempotency: duplicate delivery of the same mutation must not create duplicate records.
+Conflict resolution: define behavior when the same entity is changed on multiple devices while offline.
+Retry policy: define retry timing, maximum attempts, and FAILED-state handling.
+Authentication of synchronization requests.
+Device identity and device registration.
+Behavior when a device is offline for an extended period.
+Behavior after local database reset or application reinstall.
+These are mandatory architecture decisions because offline-first is a core product requirement.
+13. Authentication and Multi-Tenancy
+The source PRD does not yet define authentication, tenant isolation, or complete school/user schema. Before implementation, the Product Owner and Project Manager must approve:
+Driving School / tenant entity.
+User entity.
+School-to-user relationship.
+Role storage.
+Login mechanism.
+Session/token strategy.
+Device identity.
+School-level data isolation.
+Authorization rules.
+If DriveMaster NG is intended as a SaaS product, tenant isolation must be treated as a non-negotiable backend invariant.
+14. API and Data Contracts
+The existing POST /api/v1/sync/batch contract remains the MVP baseline. Additional authentication, CRUD, bootstrap/pull, and synchronization contracts must be defined before the corresponding frontend work begins.
+API contracts are architectural boundaries. Claude must not silently change field names, entity identifiers, response shapes, or synchronization semantics.
+15. UX and Design Standards
+Primary token: bg-emerald-600.
+Alert/Danger: bg-rose-600.
+Canvas: bg-slate-50 with text-slate-900.
+Native system font stack; avoid unnecessary external font downloads.
+Minimum 48px × 48px touch targets.
+Mobile-first layout.
+High contrast for daylight/outdoor readability.
+Clear online/offline status.
+Clear sync-pending/failure feedback.
+Optimistic rendering after successful local persistence.
+16. Error and Failure Handling
+Offline operation must not be treated as an application error.
+Failed synchronization must be visible and recoverable.
+Validation errors must be shown before local persistence.
+Network failures must not erase locally persisted mutations.
+Duplicate sync requests must be safely handled.
+Conflict responses must be preserved for review/resolution according to the approved conflict policy.
+17. Security Requirements
+School data must be isolated by tenant/school.
+Authentication tokens/sessions must not be stored insecurely.
+Server endpoints must validate authorization and payloads.
+Client-side validation must not replace server-side validation.
+Sensitive data must not be exposed in logs unnecessarily.
+Production deployment must use HTTPS.
+18. Project Organization
+The existing source organization remains the baseline:
+src/core/db/ — Dexie schema definitions and local migrations
+src/core/sync/ — outbox engine and network listeners
+src/core/domain/ — pure TypeScript business logic
+src/components/ — touch-friendly design primitives
+src/features/ — feature modules
+src/App.tsx — application shell
+19. Sequential AI Engineering Protocol
+Claude AI operates as Senior Software Engineer. It receives bounded, independently implementable units.
+Project Manager defines the unit and acceptance criteria.
+Founder approves material product/architecture decisions.
+Claude implements only the assigned unit.
+Claude reports changed files, behavior, tests, and known limitations.
+Founder runs/observes verification where appropriate.
+Project Manager verifies against PRD and acceptance criteria.
+Only after approval does the next unit begin.
+Claude must not expand scope, redesign architecture, change business rules, or introduce unrelated dependencies without explicit approval.
+20. Initial Engineering Units
+Unit 1 — Database Engine & Local Schema
+Implement src/core/db/schema.ts using Dexie. Define tables for students, payments, vehicles, fuelLogs, sessionBookings, and outbox. No React components or network calls.
+Unit 2 — Outbox & Offline Sync Manager
+Implement local mutation queue management, useNetworkSync(), and flushOutbox(). Focus on headless state and local database queue management.
+Unit 3 — Student Ledger & WhatsApp Receipt Generator
+Implement student enrollment, payment logging, local persistence, balance calculation, and dynamic WhatsApp receipt URL generation.
+Unit 4 — Fleet Fuel Discrepancy Calculator
+Implement FuelLogForm and the pure discrepancy calculator after the fuel rule ambiguity has been resolved.
+Future Units
+Authentication, school/tenant model, backend synchronization, bookings, vehicle management, dashboards, QA hardening, deployment, and pilot onboarding are to be decomposed into additional bounded units after the foundational decisions are approved.
+21. 30-Day Execution Strategy
+Period
+Primary Objective
+Exit Gate
+Days 1–3
+PRD lock, architecture decisions, project setup
+Architecture and MVP scope approved
+Days 4–10
+Local DB, domain rules, outbox foundation
+Offline persistence and queue verified
+Days 11–17
+Students, payments, ledger, receipts
+Core money workflow passes tests
+Days 18–23
+Vehicles, fuel, scheduling
+Operational workflows pass tests
+Days 24–27
+Backend sync, auth, cross-device hardening
+Sync/security acceptance tests pass
+Days 28–30
+QA, deployment, pilot readiness
+Production MVP deployed
+22. Definition of Done — MVP
+The MVP is considered complete only when all applicable criteria below pass:
+A pilot driving school can access the application.
+Authorized users can perform their approved workflows.
+Student registration works offline.
+Payment recording works offline.
+Student balances calculate correctly.
+WhatsApp receipt links can be generated.
+Vehicle records work.
+Fuel records work and approved discrepancy rules are correctly applied.
+Session booking works and vehicle conflicts are blocked.
+Core local data survives page refresh while offline.
+Outbox mutations survive temporary connectivity failures.
+Successful synchronization is idempotent.
+Approved conflict behavior is implemented.
+Application provides clear online/offline/sync status.
+UI meets the 48px touch-target requirement.
+TypeScript strict mode passes without inappropriate any overrides.
+Core business rules have automated tests.
+Production PWA is deployed over HTTPS.
+At least one real pilot school can complete the core workflows successfully.
+23. Human Review and Verification Gates
+Architecture gate: Founder + Project Manager approve schema, state boundaries, APIs, and sync strategy.
+Unit gate: Claude demonstrates that the assigned bounded unit works and tests pass.
+Product gate: Founder verifies that the feature reflects the real driving-school workflow.
+Offline gate: core workflow is tested with network disabled.
+Sync gate: queued mutations are tested through reconnection and retry.
+Release gate: no unresolved critical defects before production deployment.
+24. Open Decisions Before Coding
+Decision
+Why It Must Be Resolved
+Exact MVP authentication flow
+Required for secure pilot access.
+Tenant/school schema
+Required for SaaS-safe data isolation.
+Exact user permissions
+Prevents accidental access and scope ambiguity.
+Session duration and instructor assignment
+Required by the booking conflict rule.
+Fuel discrepancy formula
+Current wording is mathematically ambiguous.
+Conflict-resolution strategy
+Required for multiple offline devices.
+Idempotency mechanism
+Prevents duplicate server-side records.
+Retry policy
+Defines recovery from failed synchronization.
+Initial data bootstrap/pull strategy
+Required for new devices and cross-device operation.
+Production deployment architecture
+Required before final launch work.
+25. Product Governance Rules
+This PRD is the baseline source of truth for the MVP.
+Business decisions belong to the Founder/Product Owner.
+Project coordination and requirements interpretation belong to the Project Manager.
+Implementation belongs to Claude AI as Senior Software Engineer.
+Technical changes that affect architecture require explicit approval.
+A passing code build does not equal product acceptance.
+A feature is complete only when its business acceptance criteria and technical requirements both pass.
+Scope additions during the 30-day period require explicit trade-off: add the feature and remove/defer another, or reject the addition.
+Appendix A — Existing Technical Reference
+The original PRD established the following core technical baseline: React Vite/UI → Dexie/IndexedDB local source of truth → WhatsApp link engine/outbox → sync controller → HTTPS REST cloud backend; local writes are persisted before background synchronization; local reads use Dexie hooks such as useLiveQuery; and the initial synchronization endpoint is POST /api/v1/sync/batch. fileciteturn0file0L37-L63
+The original PRD also established the core domain entities and initial business rules used as the basis for this v1.1 refinement. fileciteturn0file0L64-L102
+Appendix B — Change Summary from v1.0
+Converted the technical blueprint into a combined product + engineering execution contract.
+Added explicit MVP and non-MVP boundaries.
+Added user journeys and role/permission governance.
+Added authentication and multi-tenancy decision requirements.
+Expanded offline synchronization requirements.
+Added failure handling and security requirements.
+Added 30-day execution strategy.
+Added a formal MVP Definition of Done.
+Identified unresolved ambiguity in booking duration and fuel discrepancy logic.
+Established governance rules for the Founder, Project Manager, and Senior Software Engineer AI roles.
+26. Locked Architecture & Product Decisions — v1.2
+This section converts the open decisions identified in PRD v1.1 into binding MVP requirements. These decisions are now part of the DriveMaster NG source of truth. Claude AI must implement them as specified and must not reinterpret them without explicit approval from the Founder/Product Owner.
+26.1 Authentication
+MVP authentication uses conventional credential authentication: phone number or email plus password.
+OTP login is deferred to post-MVP to avoid SMS cost and delivery dependencies.
+Authenticated sessions/tokens must be implemented using a secure server-approved mechanism.
+Long-lived authentication secrets must not be stored insecurely in ordinary localStorage or IndexedDB.
+26.2 School / Multi-Tenant Model
+DriveMaster is modeled as a multi-tenant SaaS application.
+A School/Tenant entity is required.
+Tenant-owned records must contain schoolId.
+The backend derives the school/tenant from the authenticated user/session; client-supplied schoolId is never trusted for authorization.
+Tenant ownership must be enforced at the service/data-access layer for every tenant-owned resource.
+Shared PostgreSQL database with tenant-scoped records is the MVP architecture.
+26.3 MVP Roles
+Owner: full school-level visibility and management.
+Receptionist: student management, payment recording, booking management, receipt generation, and relevant operational viewing.
+Instructor: assigned-session and relevant student/vehicle access; may update session status.
+Owner-only controls must not be exposed to Receptionists or Instructors.
+Backend authorization is mandatory; UI hiding alone is not security.
+26.4 Session Booking Model
+SessionBooking must include instructorId and durationMinutes.
+Default session duration is 60 minutes, while the booking workflow may allow a different duration.
+Booking status values are SCHEDULED, COMPLETED, CANCELLED, and NO_SHOW.
+Vehicle conflicts are blocked when time windows overlap.
+Instructor conflicts are also blocked for overlapping time windows.
+Overlap rule: existing.start < new.end AND existing.end > new.start.
+26.5 Fuel Discrepancy Rule
+For MVP, discrepancyAlert is true when distance delta is less than 10 km AND fuelCost is greater than or equal to ₦5,000.
+distanceDelta = currentOdometer - previousOdometer.
+The MVP must not attempt to infer fuel efficiency or accuse a vehicle based on a universal consumption rate.
+Vehicle-specific fuel-efficiency intelligence is deferred to post-MVP.
+26.6 Conflict Resolution
+Financial transactions such as payments and fuel logs are append-only and must not be silently overwritten.
+Non-critical profile fields may use version-aware last-write-wins behavior.
+Bookings use server-side conflict detection. If two devices create overlapping bookings for the same vehicle or instructor, the server accepts one valid mutation and returns a conflict for the other.
+Conflict responses must be represented explicitly in the local outbox state as CONFLICT.
+The client must not silently resolve financial or scheduling conflicts.
+26.7 Idempotency
+Every outbox mutation has a globally unique mutationId (UUID v4).
+The backend records processed mutation IDs.
+Repeated delivery of an already processed mutation must not create a duplicate business record.
+The synchronization response must communicate already-processed/duplicate mutation IDs where applicable.
+26.8 Retry Policy
+Outbox states are PENDING, SYNCING, FAILED, and CONFLICT.
+Automatic retry schedule: immediate, then approximately 5 seconds, 30 seconds, 2 minutes, and 10 minutes.
+After five unsuccessful attempts, the mutation becomes FAILED and remains stored for recovery.
+Failed mutations must not be deleted automatically.
+The UI must show when unsynchronized mutations remain.
+26.9 Bidirectional Synchronization
+Synchronization is bidirectional: device PUSHes local mutations to the server and PULLs server changes.
+Sync sequence: push pending mutations → receive acknowledgements/conflicts → pull changes since last sync cursor → apply changes locally → advance cursor.
+Use a server-generated change cursor/version for incremental pull rather than relying solely on device clocks.
+The local database remains the immediate operational source of truth while the server provides durable persistence and cross-device synchronization.
+26.10 Device Identity
+Each app installation receives a persistent deviceId.
+Mutations carry mutationId and deviceId.
+Device identity is used for synchronization, diagnostics, and auditability.
+26.11 Local Data and School Switching
+Only one school account is active in a device session for MVP.
+When switching schools, the previous school's tenant-scoped local operational data must be cleared before the new school is initialized.
+A user must never be able to see another school's locally cached records after switching accounts.
+26.12 Reinstall / Unsynchronized Data
+Unsynchronized local mutations may be lost if the application is removed or local storage is destroyed.
+The application must clearly warn users when unsynchronized mutations remain.
+The cloud backend is the durable recovery source after successful synchronization.
+26.13 Audit Trail
+A lightweight AuditLog entity is included in MVP.
+Minimum fields: id, schoolId, userId, action, entity, entityId, timestamp, metadata.
+At minimum, important student, payment, booking, and fuel actions must be auditable.
+Financial records should be corrected through traceable correction events rather than silently erasing history.
+26.14 Financial Transaction Integrity
+Payments are immutable/append-only for MVP.
+A mistaken payment is corrected through a compensating/correction transaction rather than destructive editing.
+Fuel logs follow the same historical integrity principle.
+The student's balance is derived from the tuition amount and valid payment transactions.
+26.15 API / Data Governance
+APIs must preserve approved entity names, identifiers, request shapes, response shapes, and synchronization semantics.
+Claude AI must not silently change schemas or API contracts.
+Any architecture change affecting tenant isolation, synchronization, domain rules, or financial integrity requires Founder/Product Owner approval.
+27. Final MVP Architecture
+The approved architecture is a local-first React PWA backed by Dexie/IndexedDB, a durable outbox, a synchronization controller, HTTPS APIs, and a multi-tenant PostgreSQL backend.
+Operational flow: UI action → local Dexie persistence → optimistic UI update → durable outbox → synchronization controller → backend idempotency/validation/conflict handling → acknowledgement → incremental pull → local application of server changes.
+28. Final MVP Domain Model Additions
+The v1.2 model must include the following additional entities/fields:
+School/Tenant: id and school-level profile fields.
+User: id, schoolId, role, authentication identity fields, and required status fields.
+Student: schoolId.
+Payment: schoolId and mutation/audit metadata as required.
+Vehicle: schoolId.
+FuelLog: schoolId.
+SessionBooking: schoolId, instructorId, durationMinutes.
+OutboxMutation: mutationId, deviceId, entity, action, payload, timestamp, status, retryCount.
+AuditLog: id, schoolId, userId, action, entity, entityId, timestamp, metadata.
+Synchronization metadata: device identity and last server change cursor.
+29. Revised Engineering Sequence
+Unit 0 — Project foundation, environment, repository structure, configuration, and test baseline.
+Unit 1 — Multi-tenant domain schema and Dexie local schema.
+Unit 2 — Authentication/session model and tenant-aware backend foundation.
+Unit 3 — Domain business rules and immutable financial transaction model.
+Unit 4 — Durable outbox, idempotency metadata, retry state, and device identity.
+Unit 5 — Push synchronization endpoint and server mutation processing.
+Unit 6 — Incremental pull synchronization and cursor management.
+Unit 7 — Student enrollment, payment ledger, and WhatsApp receipt workflow.
+Unit 8 — Vehicle and fuel management with the locked discrepancy rule.
+Unit 9 — Instructor and session booking with vehicle/instructor conflict protection.
+Unit 10 — Audit trail, role-based authorization, and operational safeguards.
+Unit 11 — Dashboard/operational views required for MVP.
+Unit 12 — Offline, synchronization, security, regression, and production QA.
+Unit 13 — Deployment, pilot onboarding, monitoring, and launch verification.
+30. PM Execution Rule
+No implementation unit proceeds merely because the preceding code compiles. Each unit must satisfy its acceptance criteria, automated tests where applicable, product behavior requirements, and offline/sync requirements before the Project Manager marks it complete.
+The Founder/Product Owner remains the final authority on business behavior. ChatGPT acts as Project/Product Manager and architecture-governance coordinator. Claude AI acts as Senior Software Engineer and implementation engine.
+31. Version 1.2 Change Log
+Resolved authentication approach.
+Locked school/tenant and tenant-isolation strategy.
+Locked MVP roles and permission boundaries.
+Added instructor assignment and booking duration.
+Resolved the MVP fuel discrepancy formula.
+Defined domain-specific conflict resolution.
+Locked mutation idempotency requirements.
+Defined retry states and retry schedule.
+Added bidirectional push/pull synchronization.
+Added persistent device identity.
+Defined local tenant-switching behavior.
+Defined reinstall/unsynchronized-data expectations.
+Added lightweight audit trail to MVP.
+Locked immutable financial transaction behavior.
+Revised engineering sequence to reflect the finalized architecture.
