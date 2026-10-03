@@ -27,6 +27,7 @@ import "./types/express.js";
 import { createSyncRouter } from "./routes/sync.js";
 import { createPublicEnrollmentRouter } from "./training/enrollmentRoutes.js";
 import type { SyncDeps } from "./sync/syncRepository.js";
+import { createPlatformRouter } from "./platform/platformRoutes.js";
 
 export interface CreateAppOptions {
   syncDeps?: SyncDeps;
@@ -79,7 +80,12 @@ export function createApp(options: CreateAppOptions): Express {
   const allowedOrigins = parseAllowedOrigins(webOrigin);
 
   // Public, unauthenticated intake accepts no cookies; staff routes retain strict origin checks.
-  app.use("/api/enroll", cors({ origin: "*", credentials: false }), express.json({ limit: "32kb" }), createPublicEnrollmentRouter());
+  app.use(
+    "/api/enroll",
+    cors({ origin: "*", credentials: false }),
+    express.json({ limit: "32kb" }),
+    createPublicEnrollmentRouter()
+  );
 
   app.use(
     cors({
@@ -100,6 +106,7 @@ export function createApp(options: CreateAppOptions): Express {
   app.use(express.json());
 
   app.use("/api", healthRouter);
+  app.use("/api/platform", createPlatformRouter({ authSecret, secureCookies }));
   app.use(
     "/api/auth",
     createAuthRouter({ authSecret, sessionMaxAgeSeconds, authDeps, secureCookies })

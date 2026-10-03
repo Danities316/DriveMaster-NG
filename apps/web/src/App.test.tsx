@@ -48,6 +48,16 @@ describe("App", () => {
     vi.unstubAllGlobals();
   });
 
+  it("offers a simple public school-owner registration route", async () => {
+    window.history.replaceState(null, "", "#register");
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: false, status: 401, json: async () => ({}) }));
+    render(<App />);
+    expect(await screen.findByRole("heading", { name: "Create your school account." })).toBeVisible();
+    expect(screen.getByLabelText("Your full name")).toBeVisible();
+    expect(screen.getByLabelText("Driving school name")).toBeVisible();
+    expect(screen.getByRole("button", { name: "Create my school account" })).toBeVisible();
+  });
+
   it("opens the public home page and provides a working sign-in route", async () => {
     window.history.replaceState(null, "", "/");
     vi.stubGlobal(

@@ -41,7 +41,7 @@ const questions = [
   ],
   [
     "How do I start?",
-    "Ask your school administrator for an account. Then sign in with your phone number and password. Self-service registration and public pricing are not available yet."
+    "If you own a driving school, create your school account and follow the setup guide. Staff and students receive their accounts from the school owner."
   ],
   [
     "What can I do in the app?",
@@ -51,9 +51,11 @@ const questions = [
 
 export function HomePage({
   onSignIn,
+  onCreateAccount = onSignIn,
   authenticated = false
 }: {
   onSignIn: () => void;
+  onCreateAccount?: () => void;
   authenticated?: boolean;
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
@@ -130,9 +132,15 @@ export function HomePage({
               internet goes off.
             </p>
             <div className="hero-buttons">
-              <a className="home-button primary" href="#walkthrough">
-                Try the payment example <ArrowRight size={18} />
-              </a>
+              {authenticated ? (
+                <button className="home-button primary" onClick={onSignIn}>
+                  Open dashboard <ArrowRight size={18} />
+                </button>
+              ) : (
+                <button className="home-button primary" onClick={onCreateAccount}>
+                  Create your school account <ArrowRight size={18} />
+                </button>
+              )}
               <button className="home-text-link" onClick={onSignIn}>
                 {authenticated ? "Go to your dashboard" : "Already have an account? Sign in"}
                 <ArrowUpRight size={16} />

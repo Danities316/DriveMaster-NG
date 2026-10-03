@@ -4,6 +4,7 @@ import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import { AppShell, type Section } from "./components/AppShell";
 import type { AuthenticatedUser, StudentWithBalance } from "@drivemaster/shared";
 import { LoginForm } from "./components/LoginForm";
+import { OwnerRegistrationForm } from "./components/OwnerRegistrationForm";
 import { fetchCurrentUser, getCachedUser, logout } from "./lib/auth";
 import { ConnectionStatus } from "./components/ConnectionStatus";
 import { startSync } from "./sync/controller";
@@ -47,6 +48,11 @@ const PublicEnrollmentPage = lazy(() =>
 );
 const MorePage = lazy(() =>
   import("./components/MorePage").then((module) => ({ default: module.MorePage }))
+);
+const PlatformAdminPage = lazy(() =>
+  import("./features/platform/PlatformAdminPage").then((module) => ({
+    default: module.PlatformAdminPage
+  }))
 );
 
 function PageLoading() {
@@ -175,17 +181,27 @@ export function App() {
         <PublicEnrollmentPage key={enrollmentRoute[1]!} schoolId={enrollmentRoute[1]!} />
       </Suspense>
     );
+  if (publicRoute === "#platform-admin")
+    return (
+      <Suspense fallback={<PageLoading />}>
+        <PlatformAdminPage />
+      </Suspense>
+    );
   if (
     ["#home", "#benefits", "#walkthrough", "#questions", "#home-main", "#mileage-fuel"].includes(
       publicRoute
     ) ||
-    (authState.status !== "loggedIn" && publicRoute !== "#login" && publicRoute !== "#app")
+    (authState.status !== "loggedIn" &&
+      publicRoute !== "#login" &&
+      publicRoute !== "#register" &&
+      publicRoute !== "#app")
   ) {
     return (
       <Suspense fallback={<PageLoading />}>
         <HomePage
           authenticated={authState.status === "loggedIn"}
           onSignIn={() => navigatePublic(authState.status === "loggedIn" ? "#app" : "#login")}
+          onCreateAccount={() => navigatePublic("#register")}
         />
       </Suspense>
     );
@@ -195,6 +211,34 @@ export function App() {
     return (
       <main className="flex min-h-screen items-center justify-center">
         <p className="text-slate-500">Loading...</p>
+      </main>
+    );
+  }
+
+  if (authState.status !== "loggedIn" && publicRoute === "#register") {
+    return (
+      <main className="home-login py-8">
+        <div className="home-login-card max-w-xl">
+          <a href="#login" className="home-text-link">
+            ← Back to sign in
+          </a>
+          <p className="home-kicker">START YOUR SCHOOL WORKSPACE</p>
+          <h1>Create your school account.</h1>
+          <p>
+            Start with a 14-day trial. Add your school details, then set up packages, instructors
+            and vehicles.
+          </p>
+          <OwnerRegistrationForm
+            onSuccess={(user) => {
+              authGeneration.current += 1;
+              setAuthState({ status: "loggedIn", user });
+              navigatePublic("#app");
+            }}
+          />
+          <p className="home-login-help">
+            Already registered? <a href="#login">Sign in</a>
+          </p>
+        </div>
       </main>
     );
   }
@@ -216,7 +260,9 @@ export function App() {
               navigatePublic("#app");
             }}
           />
-          <p className="home-login-help">Need an account? Contact your school administrator.</p>
+          <p className="home-login-help">
+            New school? <a href="#register">Create your school account</a>.
+          </p>
         </div>
       </main>
     );

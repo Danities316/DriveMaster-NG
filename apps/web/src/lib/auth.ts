@@ -102,6 +102,45 @@ export async function login(phone: string, password: string): Promise<Authentica
   return user;
 }
 
+export async function registerOwner(input: {
+  ownerName: string;
+  phone: string;
+  password: string;
+  schoolName: string;
+  schoolAddress: string;
+  cacNumber: string;
+  frscNumber: string;
+  acceptedTerms: boolean;
+}): Promise<AuthenticatedUser> {
+  const response = await fetch(`${API_BASE_URL}/auth/register-owner`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    credentials: "include",
+    body: JSON.stringify(input)
+  });
+  const data: unknown = await parseJsonResponse<unknown>(response);
+  if (!response.ok) {
+    const message =
+      typeof data === "object" &&
+      data !== null &&
+      typeof (data as { error?: { message?: unknown } }).error?.message === "string"
+        ? (data as { error: { message: string } }).error.message
+        : "Could not create the account. Try again.";
+    throw new AuthError(message);
+  }
+  if (
+    typeof data !== "object" ||
+    data === null ||
+    !isAuthenticatedUser((data as LoginResponse).user)
+  )
+    throw new AuthError("The server returned an unexpected registration response.");
+  const user = (data as LoginResponse).user;
+  await prepareLocalSchool(user);
+  localStorage.removeItem(SIGNED_OUT_KEY);
+  persistUser(user);
+  return user;
+}
+
 export async function fetchCurrentUser(): Promise<CurrentUserResult> {
   if (localStorage.getItem(SIGNED_OUT_KEY)) return { user: null, source: "network" };
   try {

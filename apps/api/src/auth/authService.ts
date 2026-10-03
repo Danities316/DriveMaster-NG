@@ -17,6 +17,7 @@ export interface UserRecordForAuth {
   passwordHash: string;
   role: UserRole;
   isActive: boolean;
+  schoolStatus?: "TRIAL" | "ACTIVE" | "SUSPENDED" | "CLOSED";
 }
 
 export interface AuthDeps {
@@ -51,7 +52,7 @@ export async function login(phone: string, password: string, deps: AuthDeps): Pr
     return { ok: false, reason: "INVALID_CREDENTIALS" };
   }
 
-  if (!user.isActive) {
+  if (!user.isActive || user.schoolStatus === "SUSPENDED" || user.schoolStatus === "CLOSED") {
     return { ok: false, reason: "ACCOUNT_INACTIVE" };
   }
 

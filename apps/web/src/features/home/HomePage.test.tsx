@@ -43,7 +43,7 @@ describe("home page", () => {
       "false"
     );
     expect(
-      screen.getByText(/Self-service registration and public pricing are not available yet/)
+      screen.getByText(/create your school account and follow the setup guide/i)
     ).toBeInTheDocument();
     expect(screen.getByText(/sample names and figures/)).toBeInTheDocument();
   });

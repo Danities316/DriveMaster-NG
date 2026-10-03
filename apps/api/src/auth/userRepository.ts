@@ -18,7 +18,7 @@ import type { UserRecordForAuth } from "./authService.js";
  */
 export async function findUserByPhone(phone: string): Promise<UserRecordForAuth | null> {
   const prisma = getPrismaClient();
-  const user = await prisma.user.findUnique({ where: { phone } });
+  const user = await prisma.user.findUnique({ where: { phone }, include: { school: true } });
 
   if (!user) {
     return null;
@@ -31,6 +31,7 @@ export async function findUserByPhone(phone: string): Promise<UserRecordForAuth 
     phone: user.phone,
     passwordHash: user.passwordHash,
     role: user.role as UserRole,
-    isActive: user.isActive
+    isActive: user.isActive,
+    schoolStatus: user.school.status
   };
 }

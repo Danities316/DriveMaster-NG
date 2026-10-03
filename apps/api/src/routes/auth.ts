@@ -11,10 +11,29 @@ import { createSessionToken } from "../auth/token.js";
 import { SESSION_COOKIE_NAME } from "../auth/constants.js";
 import { createAuthenticateMiddleware } from "../middleware/authenticate.js";
 import { KnownApiError } from "../middleware/errorHandler.js";
+import { normalizeNigerianPhone } from "../auth/phone.js";
+import { registerOwner } from "../auth/ownerRegistration.js";
 
 const loginRequestSchema = z.object({
   phone: z.string().trim().min(1, "Phone number is required."),
   password: z.string().min(1, "Password is required.")
+});
+
+const ownerRegistrationSchema = z.object({
+  ownerName: z.string().trim().min(2).max(100),
+  phone: z.string().trim().min(1),
+  password: z
+    .string()
+    .min(8)
+    .max(128)
+    .regex(/[a-z]/, "Password must include a small letter.")
+    .regex(/[A-Z]/, "Password must include a capital letter.")
+    .regex(/\d/, "Password must include a number."),
+  schoolName: z.string().trim().min(2).max(150),
+  schoolAddress: z.string().trim().min(5).max(300),
+  cacNumber: z.string().trim().max(50).optional(),
+  frscNumber: z.string().trim().max(50).optional(),
+  acceptedTerms: z.literal(true)
 });
 
 export interface CreateAuthRouterOptions {
@@ -64,7 +83,10 @@ export function createAuthRouter(options: CreateAuthRouterOptions): Router {
         throw new KnownApiError("Phone number and password are required.", 400, "VALIDATION_ERROR");
       }
 
-      const result = await login(parsed.data.phone, parsed.data.password, authDeps);
+      const phone = normalizeNigerianPhone(parsed.data.phone);
+      if (!phone)
+        throw new KnownApiError("Enter a valid Nigerian phone number.", 400, "VALIDATION_ERROR");
+      const result = await login(phone, parsed.data.password, authDeps);
 
       if (!result.ok) {
         // Same message regardless of reason (unknown phone, wrong
@@ -98,6 +120,60 @@ export function createAuthRouter(options: CreateAuthRouterOptions): Router {
       res.status(200).json(body);
     } catch (err) {
       next(err);
+    }
+  });
+
+  router.post("/register-owner", async (req, res, next) => {
+    try {
+      const parsed = ownerRegistrationSchema.safeParse(req.body);
+      if (!parsed.success) {
+        throw new KnownApiError(
+          parsed.error.issues[0]?.message ?? "Check the registration details and try again.",
+          400,
+          "VALIDATION_ERROR"
+        );
+      }
+      const phone = normalizeNigerianPhone(parsed.data.phone);
+      if (!phone)
+        throw new KnownApiError("Enter a valid Nigerian phone number.", 400, "VALIDATION_ERROR");
+      let created;
+      try {
+        created = await registerOwner({ ...parsed.data, phone });
+      } catch (error) {
+        if (
+          typeof error === "object" &&
+          error !== null &&
+          "code" in error &&
+          error.code === "P2002"
+        ) {
+          throw new KnownApiError(
+            "This phone number or CAC number is already registered.",
+            409,
+            "ACCOUNT_EXISTS"
+          );
+        }
+        throw error;
+      }
+      const user = created.user;
+      const token = createSessionToken(
+        {
+          sub: user.id,
+          schoolId: user.schoolId,
+          role: user.role,
+          name: user.name,
+          phone: user.phone
+        },
+        authSecret,
+        sessionMaxAgeSeconds
+      );
+      res.cookie(SESSION_COOKIE_NAME, token, {
+        ...cookieOptions,
+        maxAge: sessionMaxAgeSeconds * 1000
+      });
+      const body: LoginResponse = { user: toAuthenticatedUser(user) };
+      res.status(201).json(body);
+    } catch (error) {
+      next(error);
     }
   });
 

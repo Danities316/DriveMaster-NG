@@ -13,7 +13,8 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
     "prisma:generate": "prisma generate",
-    "prisma:seed": "tsx prisma/seed.ts"
+    "prisma:seed": "tsx prisma/seed.ts",
+    "platform-admin:create": "tsx --env-file-if-exists=.env prisma/createPlatformAdmin.ts"
   },
   "dependencies": {
     "@drivemaster/shared": "*",
