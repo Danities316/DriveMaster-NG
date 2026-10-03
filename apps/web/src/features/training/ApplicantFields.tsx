@@ -29,9 +29,11 @@ export function ApplicantFields({
           ["firstName", "lastName", "phone"].includes(key) || requiredFields.includes(key);
         const label = INTAKE_FIELDS.find(([field]) => field === key)![1];
         return (
-          <label key={key}>
-            {label}
-            {required ? " *" : " (optional)"}
+          <label key={key} className="enroll-field">
+            <span>
+              {label}
+              {required ? " *" : <small>Optional</small>}
+            </span>
             {choices[key] ? (
               <select
                 value={details[key]}

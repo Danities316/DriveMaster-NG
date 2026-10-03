@@ -47,4 +47,11 @@ describe("home page", () => {
     ).toBeInTheDocument();
     expect(screen.getByText(/sample names and figures/)).toBeInTheDocument();
   });
+  it("provides a clear Super Admin sign-in route", () => {
+    render(<HomePage onSignIn={() => {}} />);
+    expect(screen.getByRole("link", { name: "Super Admin sign in" })).toHaveAttribute(
+      "href",
+      "#platform-admin"
+    );
+  });
 });

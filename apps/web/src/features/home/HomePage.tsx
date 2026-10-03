@@ -746,6 +746,10 @@ export function HomePage({
           DriveMaster<span className="home-brand-country">NG</span>
         </a>
         <p>Built for the everyday work of Nigerian driving schools.</p>
+        <a className="home-admin-link" href="#platform-admin">
+          <ShieldCheck size={14} aria-hidden="true" />
+          Super Admin sign in
+        </a>
         <span>© {new Date().getFullYear()} DriveMaster NG</span>
       </footer>
     </div>

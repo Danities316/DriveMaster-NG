@@ -1,24 +1,48 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
+import { ArrowRight, Check, CheckCircle2, Clock3, Phone, Route, ShieldCheck } from "lucide-react";
 import { INTAKE_FIELDS, type PublicEnrollmentInfo } from "@drivemaster/shared";
 import { ApplicantFields } from "./ApplicantFields";
 import { applicantSteps, emptyApplicant } from "./applicantForm";
 import { naira } from "../dashboard/dashboardData";
-import "./training.css";
 import { registrationId } from "./registrationId";
+import "./training.css";
+
+const stepNames = ["About you", "Address & next of kin", "Licence details", "Package & review"];
+function friendlyError(error: unknown, submitting = false) {
+  const message = error instanceof Error ? error.message : "";
+  if (/not open|closed/i.test(message))
+    return "This school is not accepting online registrations right now. Please contact the school.";
+  if (/network|fetch|abort|timeout|connection/i.test(message))
+    return submitting
+      ? "We could not confirm that your registration was received. Keep this page open and try again. You will not be registered twice."
+      : "We could not load the school’s registration details. Check your internet connection and try again.";
+  return (
+    message ||
+    (submitting
+      ? "We could not send your registration. Please try again."
+      : "We could not open this registration. Please try again.")
+  );
+}
+
 export function PublicEnrollmentPage({ schoolId }: { schoolId: string }) {
   const [info, setInfo] = useState<PublicEnrollmentInfo>();
   const [details, setDetails] = useState(emptyApplicant);
   const [packageId, setPackage] = useState("");
-  const [step, setStep] = useState(0),
-    [busy, setBusy] = useState(false),
-    [error, setError] = useState("");
-  const [consent, setConsent] = useState(false),
-    [received, setReceived] = useState(false);
+  const [step, setStep] = useState(0);
+  const [busy, setBusy] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [consent, setConsent] = useState(false);
+  const [received, setReceived] = useState(false);
   const [website, setWebsite] = useState("");
   const requestId = useRef(registrationId());
+  const loadNumber = useRef(0);
   const base = import.meta.env["VITE_API_BASE_URL"] ?? "/api";
+
   const load = useCallback(async () => {
+    const current = ++loadNumber.current;
     setError("");
+    setLoading(true);
     try {
       const response = await fetch(`${base}/enroll/${encodeURIComponent(schoolId)}`, {
         credentials: "omit",
@@ -28,15 +52,18 @@ export function PublicEnrollmentPage({ schoolId }: { schoolId: string }) {
       const result = await response.json();
       if (!response.ok)
         throw new Error(result.error?.message ?? "Unable to open this registration.");
-      setInfo(result);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Connect to the internet and try again.");
+      if (current === loadNumber.current) setInfo(result);
+    } catch (cause) {
+      if (current === loadNumber.current) setError(friendlyError(cause));
+    } finally {
+      if (current === loadNumber.current) setLoading(false);
     }
   }, [base, schoolId]);
+
   useEffect(() => {
     void load();
   }, [load]);
-  const pack = info?.packages.find((p) => p.id === packageId);
+  const pack = info?.packages.find((item) => item.id === packageId);
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (busy || !info) return;
@@ -76,71 +103,152 @@ export function PublicEnrollmentPage({ schoolId }: { schoolId: string }) {
         throw new Error(result.error?.message ?? "Unable to submit. Please try again.");
       setReceived(true);
       setDetails(emptyApplicant());
-    } catch (e) {
-      setError(
-        e instanceof Error
-          ? e.message
-          : "We could not confirm receipt. Keep this page open and try again; the same reference prevents duplicate submissions."
-      );
+    } catch (cause) {
+      setError(friendlyError(cause, true));
     } finally {
       setBusy(false);
     }
   }
+
   return (
     <main className="enroll-page training-page">
-      <section className="dm-panel training-panel">
-        <p className="dm-eyebrow">STUDENT REGISTRATION</p>
-        <h1>{info?.school.name ?? "Join your driving school"}</h1>
-        {error && (
-          <p role="alert" className="fleet-error">
-            {error}
+      <header className="enroll-brand">
+        <span>
+          <Route size={22} />
+        </span>
+        <strong>
+          DriveMaster<em>NG</em>
+        </strong>
+        <small>Student registration</small>
+      </header>
+      <div className="enroll-layout">
+        <aside className="enroll-value-card">
+          <p className="dm-eyebrow">YOUR ROAD STARTS HERE</p>
+          <h1>
+            {info?.school.name
+              ? `Start driving with ${info.school.name}`
+              : "Start your driving journey"}
+          </h1>
+          <p className="enroll-value-lead">
+            Register once and let the school keep your payment, lessons and progress together.
           </p>
-        )}
-        {!received && (
-          <button
-            type="button"
-            className="dm-secondary"
-            onClick={() => void load()}
-            disabled={busy}
-          >
-            Reload school options
-          </button>
-        )}
-        {received ? (
-          <div role="status">
-            <h2>Your details have been received</h2>
-            <p>
-              Your registration is waiting for payment and school review. Contact the office to
-              arrange payment and your first lesson.
-            </p>
-            <p>
-              Reference: <strong>{requestId.current}</strong>
-            </p>
-            <p>School phone: {info?.school.phone}</p>
-            <p>
-              This is not a payment receipt or a driver’s licence application. Keep your reference.
-            </p>
+          <ul>
+            <li>
+              <span>
+                <Clock3 size={18} />
+              </span>
+              <div>
+                <strong>About 5 minutes</strong>
+                <small>Complete it on your phone</small>
+              </div>
+            </li>
+            <li>
+              <span>
+                <Check size={18} />
+              </span>
+              <div>
+                <strong>Choose the right package</strong>
+                <small>See the lessons and price before submitting</small>
+              </div>
+            </li>
+            <li>
+              <span>
+                <ShieldCheck size={18} />
+              </span>
+              <div>
+                <strong>Your details stay private</strong>
+                <small>They go directly to the driving school</small>
+              </div>
+            </li>
+          </ul>
+          <div className="enroll-no-payment">
+            <CheckCircle2 size={20} />
+            <span>
+              <strong>No payment on this page</strong>
+              <small>The school will contact you about payment and your first lesson.</small>
+            </span>
           </div>
-        ) : (
-          info && (
+          {info?.school.phone && (
+            <a className="enroll-phone" href={`tel:${info.school.phone}`}>
+              <Phone size={17} />
+              Need help? Call {info.school.phone}
+            </a>
+          )}
+        </aside>
+
+        <section className="enroll-form-card">
+          {loading && !info ? (
+            <div className="enroll-loading" role="status">
+              <span />
+              <h2>Opening your registration…</h2>
+              <p>Please wait while we load the school’s packages.</p>
+            </div>
+          ) : received ? (
+            <div className="enroll-success" role="status">
+              <span>
+                <CheckCircle2 size={34} />
+              </span>
+              <p className="dm-eyebrow">REGISTRATION RECEIVED</p>
+              <h2>Your details have been received</h2>
+              <p>
+                The school will review your details, arrange payment and help you book your first
+                lesson.
+              </p>
+              <div className="enroll-reference">
+                <small>Your reference</small>
+                <strong>{requestId.current}</strong>
+              </div>
+              <p>
+                Keep this reference. This is not a payment receipt or a driver’s licence
+                application.
+              </p>
+              {info?.school.phone && (
+                <a className="dm-primary" href={`tel:${info.school.phone}`}>
+                  <Phone size={17} />
+                  Call the school
+                </a>
+              )}
+            </div>
+          ) : info ? (
             <>
-              <p>{info.settings.welcome}</p>
-              <p>
-                Step {step + 1} of 4:{" "}
-                {
-                  [
-                    "About you",
-                    "Address and next of kin",
-                    "Licence preparation",
-                    "Package and review"
-                  ][step]
-                }
+              <div className="enroll-form-heading">
+                <p className="dm-eyebrow">STUDENT REGISTRATION</p>
+                <h2>Tell us about yourself</h2>
+                <p>
+                  {info.settings.welcome ||
+                    "Complete the steps below. The school will help you with the rest."}
+                </p>
+              </div>
+              <ol className="enroll-progress" aria-label="Registration progress">
+                {stepNames.map((name, index) => (
+                  <li
+                    key={name}
+                    className={index < step ? "is-done" : index === step ? "is-current" : ""}
+                    aria-current={index === step ? "step" : undefined}
+                  >
+                    <span>{index < step ? <Check size={15} /> : index + 1}</span>
+                    <small>{name}</small>
+                  </li>
+                ))}
+              </ol>
+              <div className="enroll-step-heading">
+                <div>
+                  <span>Step {step + 1} of 4</span>
+                  <h3>{stepNames[step]}</h3>
+                </div>
+                <small>{Math.round(((step + 1) / 4) * 100)}% complete</small>
+              </div>
+              <p className="enroll-field-note">
+                <strong>*</strong> means the school needs this information now. Optional details can
+                be completed later.
               </p>
-              <p>
-                Fields marked * are needed now. Other details can be completed with the school
-                later. Internet is needed to submit; private details are not saved on this device.
-              </p>
-              <form className="training-form" onSubmit={(e) => void submit(e)}>
+              {error && (
+                <div role="alert" className="enroll-error">
+                  <CircleAlertIcon />
+                  <span>{error}</span>
+                </div>
+              )}
+              <form className="training-form enroll-form" onSubmit={(event) => void submit(event)}>
                 {step < 3 && (
                   <ApplicantFields
                     fields={applicantSteps[step]!}
@@ -150,38 +258,61 @@ export function PublicEnrollmentPage({ schoolId }: { schoolId: string }) {
                   />
                 )}
                 {step === 2 && (
-                  <p>
-                    These details help the school prepare your application later. Leave unknown
-                    blood group blank. Official tests, verification and biometric capture are
-                    separate. Licence class is a preference, subject to eligibility.
-                  </p>
+                  <div className="enroll-help">
+                    <ShieldCheck size={18} />
+                    <p>
+                      These details help the school prepare your licence application later. Leave
+                      your blood group blank if you do not know it. Official tests, verification and
+                      biometric capture are separate.
+                    </p>
+                  </div>
                 )}
                 {step === 3 && (
                   <>
-                    <label>
-                      Choose your training package *
+                    <label className="enroll-package-select">
+                      <span>Choose your training package *</span>
                       <select
                         value={packageId}
-                        onChange={(e) => setPackage(e.target.value)}
+                        onChange={(event) => setPackage(event.target.value)}
                         required
                       >
                         <option value="">Choose a package</option>
-                        {info.packages.map((p) => (
-                          <option value={p.id} key={p.id}>
-                            {p.data.name} — {p.data.sessions} lessons — {naira(p.data.price)}
+                        {info.packages.map((item) => (
+                          <option value={item.id} key={item.id}>
+                            {item.data.name} — {item.data.sessions} lessons —{" "}
+                            {naira(item.data.price)}
                           </option>
                         ))}
                       </select>
                     </label>
                     {!info.packages.length && (
-                      <p>No packages are open. Please contact the school.</p>
+                      <p className="enroll-error">
+                        No packages are open. Please contact the school.
+                      </p>
                     )}
-                    <p>
-                      School target: {info.schoolTargetDays} separate training days. Recorded DSSP
-                      minimum: 26 days. A shorter package may need extra lessons; fees for extra
-                      lessons are agreed separately.
-                    </p>
-                    <details open className="workflow-review">
+                    {pack && (
+                      <div className="enroll-package-card">
+                        <span>YOUR CHOICE</span>
+                        <h4>{pack.data.name}</h4>
+                        <div>
+                          <strong>{pack.data.sessions}</strong>
+                          <small>lessons</small>
+                        </div>
+                        <div>
+                          <strong>{naira(pack.data.price)}</strong>
+                          <small>package price</small>
+                        </div>
+                      </div>
+                    )}
+                    <div className="enroll-help">
+                      <CheckCircle2 size={18} />
+                      <p>
+                        Your school expects training on {info.schoolTargetDays} separate days. The
+                        recorded DSSP minimum is 26 days. The school will explain any extra lessons
+                        before you pay.
+                      </p>
+                    </div>
+                    <details open className="workflow-review enroll-review">
                       <summary>Check your details</summary>
                       <dl>
                         {INTAKE_FIELDS.filter(([key]) => details[key]).map(([key, label]) => (
@@ -194,35 +325,40 @@ export function PublicEnrollmentPage({ schoolId }: { schoolId: string }) {
                         ))}
                       </dl>
                     </details>
-                    <label className="training-check">
+                    <label className="training-check enroll-consent">
                       <input
                         type="checkbox"
                         checked={consent}
-                        onChange={(e) => setConsent(e.target.checked)}
+                        onChange={(event) => setConsent(event.target.checked)}
                         required
                       />
-                      I agree that this school may store my details to manage my training and help
-                      prepare my licence application. I have permission to provide my next-of-kin
-                      contact details.
+                      <span>
+                        I agree that this school may store my details to manage my training and help
+                        prepare my licence application. I have permission to provide my next-of-kin
+                        contact details.
+                      </span>
                     </label>
                     <label hidden>
                       Leave this blank
                       <input
                         value={website}
-                        onChange={(e) => setWebsite(e.target.value)}
+                        onChange={(event) => setWebsite(event.target.value)}
                         tabIndex={-1}
                         autoComplete="off"
                       />
                     </label>
                   </>
                 )}
-                <div className="workflow-actions">
+                <div className="workflow-actions enroll-actions">
                   {step > 0 && (
                     <button
                       type="button"
                       className="dm-secondary"
                       disabled={busy}
-                      onClick={() => setStep(step - 1)}
+                      onClick={() => {
+                        setStep(step - 1);
+                        setError("");
+                      }}
                     >
                       Back
                     </button>
@@ -232,14 +368,41 @@ export function PublicEnrollmentPage({ schoolId }: { schoolId: string }) {
                     disabled={busy || (step === 3 && !info.packages.length)}
                     type="submit"
                   >
-                    {busy ? "Sending…" : step === 3 ? "Submit my registration" : "Continue"}
+                    {busy ? (
+                      "Sending…"
+                    ) : step === 3 ? (
+                      "Submit my registration"
+                    ) : (
+                      <>
+                        Continue <ArrowRight size={17} />
+                      </>
+                    )}
                   </button>
                 </div>
               </form>
+              <p className="enroll-privacy">
+                <ShieldCheck size={14} />
+                Private details are sent securely and are not saved on this phone.
+              </p>
             </>
-          )
-        )}
-      </section>
+          ) : (
+            <div className="enroll-loading enroll-load-error">
+              <h2>We couldn’t open this registration</h2>
+              <p role="alert">{error}</p>
+              <button type="button" className="dm-primary" onClick={() => void load()}>
+                Try again
+              </button>
+            </div>
+          )}
+        </section>
+      </div>
+      <footer className="enroll-footer">
+        Powered by DriveMaster NG · Built for Nigerian driving schools
+      </footer>
     </main>
   );
+}
+
+function CircleAlertIcon() {
+  return <span aria-hidden="true">!</span>;
 }

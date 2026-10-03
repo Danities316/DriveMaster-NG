@@ -37,7 +37,11 @@ it("lets a student submit without login and safely retries the same registration
     .mockResolvedValueOnce(response({ received: true }));
   vi.stubGlobal("fetch", fetcher);
   render(<PublicEnrollmentPage schoolId="school" />);
-  expect(await screen.findByRole("heading", { name: "Ada Driving School" })).toBeInTheDocument();
+  expect(
+    await screen.findByRole("heading", { name: "Start driving with Ada Driving School" })
+  ).toBeInTheDocument();
+  expect(screen.getByText("About 5 minutes")).toBeInTheDocument();
+  expect(screen.getByText("No payment on this page")).toBeInTheDocument();
   fireEvent.change(screen.getByLabelText("First name *"), { target: { value: "Bola" } });
   fireEvent.change(screen.getByLabelText("Surname *"), { target: { value: "Ade" } });
   fireEvent.change(screen.getByLabelText("Phone number *"), { target: { value: "08012345678" } });
@@ -52,7 +56,7 @@ it("lets a student submit without login and safely retries the same registration
   });
   fireEvent.click(screen.getByRole("checkbox", { name: /I agree/ }));
   fireEvent.click(screen.getByRole("button", { name: "Submit my registration" }));
-  expect(await screen.findByRole("alert")).toHaveTextContent("Connection lost");
+  expect(await screen.findByRole("alert")).toHaveTextContent("could not confirm");
   fireEvent.click(screen.getByRole("button", { name: "Submit my registration" }));
   expect(
     await screen.findByRole("heading", { name: "Your details have been received" })
@@ -74,7 +78,7 @@ it("explains a closed enrollment link without showing an unusable intake form", 
     })
   );
   render(<PublicEnrollmentPage schoolId="closed" />);
-  expect(await screen.findByRole("alert")).toHaveTextContent("not open");
+  expect(await screen.findByRole("alert")).toHaveTextContent("not accepting");
   expect(screen.queryByLabelText("First name *")).not.toBeInTheDocument();
 });
 it("generates a downloadable school-specific QR locally and warns about localhost", async () => {
