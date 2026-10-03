@@ -76,6 +76,6 @@ export function loadEnv(source: NodeJS.ProcessEnv = process.env): Env {
 export function parseAllowedOrigins(webOrigin: string): string[] {
   return webOrigin
     .split(",")
-    .map((origin) => origin.trim())
+    .map((origin) => origin.trim().replace(/\/+$/, ""))
     .filter((origin) => origin.length > 0);
 }

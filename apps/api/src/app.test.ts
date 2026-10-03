@@ -51,6 +51,22 @@ describe("CORS", () => {
     expect(response.headers["access-control-allow-origin"]).toBe(TEST_ORIGIN);
   });
 
+  it("allows the browser origin when WEB_ORIGIN has a trailing slash", async () => {
+    const appWithTrailingSlash = createApp({
+      webOrigin: `${TEST_ORIGIN}/`,
+      authSecret: "test-secret-at-least-32-characters-long",
+      sessionMaxAgeSeconds: 3600,
+      secureCookies: false,
+      authDeps: noopAuthDeps
+    });
+    const response = await request(appWithTrailingSlash)
+      .get("/api/health")
+      .set("Origin", TEST_ORIGIN);
+
+    expect(response.status).toBe(200);
+    expect(response.headers["access-control-allow-origin"]).toBe(TEST_ORIGIN);
+  });
+
   it("rejects requests from an origin that is not allowed", async () => {
     const response = await request(app)
       .get("/api/health")
