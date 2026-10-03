@@ -1,0 +1,318 @@
+.platform-brand-button {
+  width: 100%;
+  border: 0;
+  background: transparent;
+  text-align: left;
+}
+.platform-loading,
+.platform-login {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  background: #f7f8fc;
+  padding: 24px;
+}
+.platform-loading {
+  color: #0000ff;
+  gap: 12px;
+  align-content: center;
+}
+.platform-login-card {
+  width: min(100%, 460px);
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  border-radius: 20px;
+  padding: clamp(24px, 5vw, 44px);
+  box-shadow: 0 24px 70px rgba(15, 23, 42, 0.12);
+}
+.platform-login-brand {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  font-size: 20px;
+  font-weight: 800;
+  margin-bottom: 34px;
+}
+.platform-login-brand > span {
+  display: grid;
+  place-items: center;
+  width: 42px;
+  height: 42px;
+  border-radius: 12px;
+  color: #fff;
+  background: #0000ff;
+}
+.platform-login-brand strong {
+  color: #0000ff;
+}
+.platform-login-card h1 {
+  margin: 6px 0 8px;
+  font-size: clamp(30px, 6vw, 42px);
+}
+.platform-login-card > p {
+  color: #64748b;
+}
+.platform-login-card form {
+  display: grid;
+  gap: 17px;
+  margin-top: 28px;
+}
+.platform-login-card label {
+  display: grid;
+  gap: 7px;
+  font-weight: 700;
+}
+.platform-login-card input {
+  min-height: 50px;
+  border: 1px solid #cbd5e1;
+  border-radius: 10px;
+  padding: 0 14px;
+  font-size: 16px;
+}
+.platform-login-card .dm-primary {
+  min-height: 50px;
+  justify-content: center;
+}
+.platform-private {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-top: 22px;
+  font-size: 13px;
+}
+.platform-error {
+  color: #b91c1c !important;
+}
+.platform-error-banner {
+  margin-bottom: 16px;
+}
+.platform-stats {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+.platform-attention {
+  margin-bottom: 22px;
+}
+.platform-clear {
+  display: flex;
+  gap: 14px;
+  align-items: center;
+  padding: 20px;
+  border: 1px solid #bbf7d0;
+  border-radius: 14px;
+  background: #f0fdf4;
+  color: #166534;
+}
+.platform-clear p {
+  margin: 3px 0 0;
+  color: #3f6212;
+}
+.platform-attention-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+.platform-attention-grid button {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  text-align: left;
+  color: #b45309;
+}
+.platform-attention-grid small {
+  display: block;
+  margin-top: 4px;
+  color: #64748b;
+  font-weight: 400;
+}
+.platform-filters {
+  margin-bottom: 18px;
+}
+.platform-school-panel {
+  margin-bottom: 22px;
+}
+.platform-school-list {
+  display: grid;
+  gap: 12px;
+}
+.platform-school-card {
+  border: 1px solid #e2e8f0;
+  border-radius: 14px;
+  padding: 17px;
+  background: #fff;
+}
+.platform-school-main {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+}
+.platform-school-main h3 {
+  margin: 0;
+  font-size: 16px;
+}
+.platform-school-main p {
+  margin: 3px 0 0;
+  color: #64748b;
+  font-size: 13px;
+}
+.platform-status {
+  display: inline-flex;
+  border-radius: 999px;
+  padding: 6px 10px;
+  font-size: 12px;
+  font-weight: 800;
+}
+.status-active {
+  color: #166534;
+  background: #dcfce7;
+}
+.status-trial {
+  color: #1d4ed8;
+  background: #dbeafe;
+}
+.status-suspended {
+  color: #b45309;
+  background: #fef3c7;
+}
+.status-closed {
+  color: #991b1b;
+  background: #fee2e2;
+}
+.platform-school-numbers {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 22px;
+  margin: 15px 0 0 52px;
+  color: #64748b;
+  font-size: 13px;
+}
+.platform-school-numbers strong {
+  color: #0f172a;
+}
+.platform-school-actions {
+  margin: 16px 0 0 52px;
+  border-top: 1px solid #e2e8f0;
+  padding-top: 13px;
+}
+.platform-school-actions summary {
+  cursor: pointer;
+  color: #0000ff;
+  font-weight: 750;
+}
+.platform-school-actions form {
+  display: grid;
+  grid-template-columns: 180px minmax(220px, 1fr) auto;
+  gap: 12px;
+  align-items: end;
+  padding-top: 14px;
+}
+.platform-school-actions label {
+  display: grid;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 700;
+}
+.platform-school-actions select,
+.platform-school-actions textarea {
+  min-height: 46px;
+  border: 1px solid #cbd5e1;
+  border-radius: 9px;
+  padding: 10px;
+  font: inherit;
+}
+.platform-school-actions textarea {
+  min-height: 70px;
+  resize: vertical;
+}
+.platform-school-actions button {
+  min-height: 46px;
+}
+.platform-activity {
+  margin-top: 22px;
+}
+.platform-activity ol {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.platform-activity li {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 0;
+  border-top: 1px solid #eef2f7;
+}
+.platform-activity-icon {
+  display: grid;
+  place-items: center;
+  width: 38px;
+  height: 38px;
+  border-radius: 10px;
+  background: #eef2ff;
+  color: #0000ff;
+}
+.platform-activity strong {
+  text-transform: capitalize;
+}
+.platform-activity small {
+  display: block;
+  color: #64748b;
+  margin-top: 3px;
+}
+.platform-activity time {
+  color: #64748b;
+  font-size: 13px;
+  text-align: right;
+}
+@media (max-width: 1000px) {
+  .platform-stats {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .platform-school-actions form {
+    grid-template-columns: 1fr;
+  }
+}
+@media (max-width: 700px) {
+  .platform-stats,
+  .platform-attention-grid {
+    grid-template-columns: 1fr;
+  }
+  .platform-shell .dm-sidebar nav {
+    grid-template-columns: repeat(3, 1fr);
+  }
+  .platform-school-main {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+  .platform-status {
+    grid-column: 2;
+    justify-self: start;
+  }
+  .platform-school-numbers,
+  .platform-school-actions {
+    margin-left: 0;
+  }
+  .platform-activity li {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+  .platform-activity time {
+    grid-column: 2;
+    text-align: left;
+  }
+}
+@media (max-width: 430px) {
+  .platform-login {
+    padding: 12px;
+  }
+  .platform-login-card {
+    border-radius: 14px;
+    padding: 22px 18px;
+  }
+  .platform-school-card {
+    padding: 14px;
+  }
+  .platform-school-main .student-avatar {
+    width: 40px;
+    height: 40px;
+  }
+}

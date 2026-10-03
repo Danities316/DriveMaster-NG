@@ -311,8 +311,19 @@
     flex-direction: column;
   }
   .training-tabs {
-    display: grid;
-    grid-template-columns: 1fr;
+    display: flex;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    padding-bottom: 10px;
+  }
+  .training-tabs button {
+    flex: 0 0 auto;
+  }
+  .workflow-actions {
+    flex-direction: column-reverse;
+  }
+  .workflow-actions button {
+    width: 100%;
   }
 }
 .training-page summary {

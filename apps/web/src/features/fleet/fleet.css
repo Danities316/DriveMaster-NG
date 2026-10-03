@@ -13,7 +13,7 @@
   flex: 1;
   min-width: 200px;
   min-height: 46px;
-  border: 1px solid #c0d9e5;
+  border: 1px solid #c8c8e0;
   border-radius: 7px;
   padding: 10px;
   background: white;
@@ -22,7 +22,7 @@
 .fleet-controls p {
   flex-basis: 100%;
   font-size: 13px;
-  color: #3981a3;
+  color: #535370;
 }
 .fleet-actions {
   display: flex;
@@ -52,7 +52,7 @@
 .fleet-form input,
 .fleet-form select,
 .fleet-form textarea {
-  border: 1px solid #c4dce7;
+  border: 1px solid #c8c8e0;
   border-radius: 7px;
   padding: 11px;
   min-height: 47px;
@@ -63,15 +63,15 @@
 .fleet-form small {
   font-weight: 400;
   font-size: 12px;
-  color: #4090b5;
+  color: #535370;
 }
 .fleet-wide {
   grid-column: 1/-1;
 }
 .fleet-success {
   padding: 15px;
-  color: #175673;
-  background: #e8f3f8;
+  color: #17175c;
+  background: var(--brand-soft);
   border-radius: 8px;
   margin-bottom: 20px;
   font-size: 14px;
@@ -121,7 +121,7 @@
 
 .fleet-consumption-note {
   padding: 0 24px 20px;
-  color: #3981a3;
+  color: #535370;
   font-size: 13px;
   line-height: 1.6;
 }
@@ -140,7 +140,7 @@
 }
 .fleet-review-summary p,
 .fleet-consumption-help {
-  color: #3981a3;
+  color: #535370;
   font-size: 13px;
   line-height: 1.6;
   margin: 14px 0;

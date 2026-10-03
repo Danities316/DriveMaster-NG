@@ -173,7 +173,7 @@ export function StudentDetailPage({
     !!savedPaymentId && !!localPaymentHistory?.conflictPaymentIds.includes(savedPaymentId);
 
   return (
-    <div className="mx-auto flex w-full max-w-md flex-col gap-4 p-4">
+    <div className="student-page student-detail-page">
       <div className="flex items-center justify-between">
         <button
           type="button"

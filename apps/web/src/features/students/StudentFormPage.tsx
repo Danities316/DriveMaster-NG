@@ -112,104 +112,113 @@ export function StudentFormPage({
   }
 
   return (
-    <form onSubmit={handleSubmit} className="mx-auto flex w-full max-w-md flex-col gap-4 p-4">
-      <h1 className="text-xl font-semibold text-slate-900">
-        {isEditing ? "Edit student" : "Add student"}
-      </h1>
-
-      <div className="flex flex-col gap-1">
-        <label htmlFor="student-name" className="text-base font-medium text-slate-900">
-          Full name
-        </label>
-        <input
-          id="student-name"
-          value={form.name}
-          onChange={(event) => updateField("name", event.target.value)}
-          required
-          className="min-h-[48px] rounded-lg border border-slate-300 px-4 text-lg"
-        />
+    <div className="student-page student-form-page">
+      <div className="student-page-heading">
+        <div>
+          <p className="dm-eyebrow">STUDENT RECORD</p>
+          <h1>{isEditing ? "Edit student" : "Add student"}</h1>
+          <p>
+            {isEditing
+              ? "Update the student’s basic details and agreed fee."
+              : "Keep the student’s contact and payment details together."}
+          </p>
+        </div>
       </div>
+      <form onSubmit={handleSubmit} className="dm-panel student-form-card">
+        <div className="flex flex-col gap-1">
+          <label htmlFor="student-name" className="text-base font-medium text-slate-900">
+            Full name
+          </label>
+          <input
+            id="student-name"
+            value={form.name}
+            onChange={(event) => updateField("name", event.target.value)}
+            required
+            className="min-h-[48px] rounded-lg border border-slate-300 px-4 text-lg"
+          />
+        </div>
 
-      <div className="flex flex-col gap-1">
-        <label htmlFor="student-phone" className="text-base font-medium text-slate-900">
-          Phone number
-        </label>
-        <input
-          id="student-phone"
-          type="tel"
-          inputMode="tel"
-          value={form.phone}
-          onChange={(event) => updateField("phone", event.target.value)}
-          placeholder="e.g. 08012345678"
-          required
-          className="min-h-[48px] rounded-lg border border-slate-300 px-4 text-lg"
-        />
-      </div>
+        <div className="flex flex-col gap-1">
+          <label htmlFor="student-phone" className="text-base font-medium text-slate-900">
+            Phone number
+          </label>
+          <input
+            id="student-phone"
+            type="tel"
+            inputMode="tel"
+            value={form.phone}
+            onChange={(event) => updateField("phone", event.target.value)}
+            placeholder="e.g. 08012345678"
+            required
+            className="min-h-[48px] rounded-lg border border-slate-300 px-4 text-lg"
+          />
+        </div>
 
-      <div className="flex flex-col gap-1">
-        <label htmlFor="student-license" className="text-base font-medium text-slate-900">
-          License number <span className="font-normal text-slate-500">(optional)</span>
-        </label>
-        <input
-          id="student-license"
-          value={form.licenseNumber}
-          onChange={(event) => updateField("licenseNumber", event.target.value)}
-          className="min-h-[48px] rounded-lg border border-slate-300 px-4 text-lg"
-        />
-      </div>
+        <div className="flex flex-col gap-1">
+          <label htmlFor="student-license" className="text-base font-medium text-slate-900">
+            License number <span className="font-normal text-slate-500">(optional)</span>
+          </label>
+          <input
+            id="student-license"
+            value={form.licenseNumber}
+            onChange={(event) => updateField("licenseNumber", event.target.value)}
+            className="min-h-[48px] rounded-lg border border-slate-300 px-4 text-lg"
+          />
+        </div>
 
-      <div className="flex flex-col gap-1">
-        <label htmlFor="student-enrollment-date" className="text-base font-medium text-slate-900">
-          Enrollment date
-        </label>
-        <input
-          id="student-enrollment-date"
-          type="date"
-          value={form.enrollmentDate}
-          onChange={(event) => updateField("enrollmentDate", event.target.value)}
-          required
-          className="min-h-[48px] rounded-lg border border-slate-300 px-4 text-lg"
-        />
-      </div>
+        <div className="flex flex-col gap-1">
+          <label htmlFor="student-enrollment-date" className="text-base font-medium text-slate-900">
+            Enrollment date
+          </label>
+          <input
+            id="student-enrollment-date"
+            type="date"
+            value={form.enrollmentDate}
+            onChange={(event) => updateField("enrollmentDate", event.target.value)}
+            required
+            className="min-h-[48px] rounded-lg border border-slate-300 px-4 text-lg"
+          />
+        </div>
 
-      <div className="flex flex-col gap-1">
-        <label htmlFor="student-tuition" className="text-base font-medium text-slate-900">
-          Total tuition (₦)
-        </label>
-        <input
-          id="student-tuition"
-          type="text"
-          inputMode="decimal"
-          value={form.totalTuition}
-          onChange={(event) => updateField("totalTuition", event.target.value)}
-          placeholder="e.g. 150000"
-          required
-          className="min-h-[48px] rounded-lg border border-slate-300 px-4 text-lg"
-        />
-      </div>
+        <div className="flex flex-col gap-1">
+          <label htmlFor="student-tuition" className="text-base font-medium text-slate-900">
+            Total tuition (₦)
+          </label>
+          <input
+            id="student-tuition"
+            type="text"
+            inputMode="decimal"
+            value={form.totalTuition}
+            onChange={(event) => updateField("totalTuition", event.target.value)}
+            placeholder="e.g. 150000"
+            required
+            className="min-h-[48px] rounded-lg border border-slate-300 px-4 text-lg"
+          />
+        </div>
 
-      {error ? (
-        <p role="alert" className="text-base text-rose-600">
-          {error}
-        </p>
-      ) : null}
+        {error ? (
+          <p role="alert" className="text-base text-rose-600">
+            {error}
+          </p>
+        ) : null}
 
-      <div className="flex gap-3">
-        <button
-          type="button"
-          onClick={onCancel}
-          className="min-h-[48px] flex-1 rounded-lg border border-slate-300 px-6 py-3 text-lg font-medium text-slate-700 transition hover:bg-slate-50"
-        >
-          Cancel
-        </button>
-        <button
-          type="submit"
-          disabled={isSubmitting}
-          className="min-h-[48px] flex-1 rounded-lg bg-brand px-6 py-3 text-lg font-medium text-brand-ink transition hover:bg-brand-hover disabled:opacity-60"
-        >
-          {isSubmitting ? "Saving..." : "Save"}
-        </button>
-      </div>
-    </form>
+        <div className="student-form-actions">
+          <button
+            type="button"
+            onClick={onCancel}
+            className="min-h-[48px] flex-1 rounded-lg border border-slate-300 px-6 py-3 text-lg font-medium text-slate-700 transition hover:bg-slate-50"
+          >
+            Cancel
+          </button>
+          <button
+            type="submit"
+            disabled={isSubmitting}
+            className="min-h-[48px] flex-1 rounded-lg bg-brand px-6 py-3 text-lg font-medium text-brand-ink transition hover:bg-brand-hover disabled:opacity-60"
+          >
+            {isSubmitting ? "Saving..." : "Save"}
+          </button>
+        </div>
+      </form>
+    </div>
   );
 }

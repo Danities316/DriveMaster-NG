@@ -29,21 +29,25 @@ export function StudentListPage({ schoolId, onSelectStudent, onAddStudent }: Stu
   );
 
   return (
-    <div className="mx-auto flex w-full max-w-5xl flex-col gap-4 p-4 md:p-8">
-      <div className="flex items-center justify-between gap-2">
-        <h1 className="text-xl font-semibold text-slate-900">Students</h1>
+    <div className="student-page student-list-page">
+      <div className="student-page-heading">
+        <div>
+          <p className="dm-eyebrow">STUDENT RECORDS</p>
+          <h1>Students</h1>
+          <p>Find a student, check what they owe, or add a new record.</p>
+        </div>
         <button
           type="button"
           onClick={onAddStudent}
           aria-label="Add student"
-          className="flex min-h-[48px] min-w-[48px] items-center justify-center gap-1 rounded-lg bg-brand px-4 text-brand-ink transition hover:bg-brand-hover"
+          className="dm-primary"
         >
           <Plus size={20} aria-hidden="true" />
-          Add
+          Add student
         </button>
       </div>
 
-      <div className="relative">
+      <div className="student-search">
         <Search
           size={18}
           className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
@@ -78,13 +82,13 @@ export function StudentListPage({ schoolId, onSelectStudent, onAddStudent }: Stu
           </section>
         )
       ) : (
-        <ul className="flex flex-col divide-y divide-slate-200 rounded-lg border border-slate-200">
+        <ul className="student-list-cards">
           {students.map((student) => (
             <li key={student.id}>
               <button
                 type="button"
                 onClick={() => onSelectStudent(student.id)}
-                className="flex min-h-[64px] w-full items-center gap-3 px-4 py-3 text-left transition hover:bg-slate-50"
+                className="student-list-row"
               >
                 <span className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full bg-slate-100 text-slate-500">
                   <User size={20} aria-hidden="true" />
@@ -93,7 +97,7 @@ export function StudentListPage({ schoolId, onSelectStudent, onAddStudent }: Stu
                   <span className="text-base font-medium text-slate-900">{student.name}</span>
                   <span className="text-sm text-slate-500">{student.phone}</span>
                 </span>
-                <span className="flex flex-col items-end">
+                <span className="student-list-balance">
                   <span className="text-sm text-slate-500">Balance</span>
                   <span
                     className={
