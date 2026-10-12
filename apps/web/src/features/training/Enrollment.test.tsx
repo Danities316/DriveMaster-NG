@@ -20,7 +20,16 @@ afterEach(() => {
 });
 const info: PublicEnrollmentInfo = {
   school: { id: "school", name: "Ada Driving School", phone: "08012345678" },
-  settings: { welcome: "Welcome", requiredFields: ["nin"] },
+  settings: {
+    welcome: "Welcome",
+    requiredFields: ["nin"],
+    showBankTransfer: false,
+    bankName: "",
+    accountNumber: "",
+    accountName: "",
+    paymentInstructions: "",
+    allowReceiptUpload: false
+  },
   settingsVersion: 0,
   rulesVersion: -1,
   schoolTargetDays: 26,
@@ -41,7 +50,7 @@ it("lets a student submit without login and safely retries the same registration
     await screen.findByRole("heading", { name: "Start driving with Ada Driving School" })
   ).toBeInTheDocument();
   expect(screen.getByText("About 5 minutes")).toBeInTheDocument();
-  expect(screen.getByText("No payment on this page")).toBeInTheDocument();
+  expect(screen.getByText("Pay only after you register")).toBeInTheDocument();
   fireEvent.change(screen.getByLabelText("First name *"), { target: { value: "Bola" } });
   fireEvent.change(screen.getByLabelText("Surname *"), { target: { value: "Ade" } });
   fireEvent.change(screen.getByLabelText("Phone number *"), { target: { value: "08012345678" } });
@@ -80,6 +89,52 @@ it("explains a closed enrollment link without showing an unusable intake form", 
   render(<PublicEnrollmentPage schoolId="closed" />);
   expect(await screen.findByRole("alert")).toHaveTextContent("not accepting");
   expect(screen.queryByLabelText("First name *")).not.toBeInTheDocument();
+});
+it("shows the school's account after registration and keeps a transfer waiting for confirmation", async () => {
+  const paymentInfo: PublicEnrollmentInfo = {
+    ...info,
+    settings: {
+      ...info.settings,
+      showBankTransfer: true,
+      bankName: "Access Bank",
+      accountNumber: "0123456789",
+      accountName: "Ada Driving School Ltd",
+      paymentInstructions: "Use the student's name.",
+      allowReceiptUpload: true
+    }
+  };
+  const fetcher = vi
+    .fn()
+    .mockResolvedValueOnce(response(paymentInfo))
+    .mockResolvedValueOnce(response({ received: true }))
+    .mockResolvedValueOnce(response({ received: true }));
+  vi.stubGlobal("fetch", fetcher);
+  render(<PublicEnrollmentPage schoolId="school" />);
+  await screen.findByRole("heading", { name: /Start driving with/ });
+  fireEvent.change(screen.getByLabelText("First name *"), { target: { value: "Bola" } });
+  fireEvent.change(screen.getByLabelText("Surname *"), { target: { value: "Ade" } });
+  fireEvent.change(screen.getByLabelText("Phone number *"), { target: { value: "08012345678" } });
+  fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+  fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+  fireEvent.change(screen.getByLabelText("NIN (11 digits) *"), {
+    target: { value: "01234567890" }
+  });
+  fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+  fireEvent.change(screen.getByLabelText("Choose your training package *"), {
+    target: { value: "basic" }
+  });
+  fireEvent.click(screen.getByRole("checkbox", { name: /I agree/ }));
+  fireEvent.click(screen.getByRole("button", { name: "Submit my registration" }));
+  expect(await screen.findByText("0123456789")).toBeVisible();
+  fireEvent.click(screen.getByText("I have made payment"));
+  fireEvent.change(screen.getByLabelText(/Amount transferred/), { target: { value: "25000" } });
+  fireEvent.change(screen.getByLabelText("Transfer date"), { target: { value: "2026-10-03" } });
+  fireEvent.change(screen.getByLabelText(/Name on the sender/), { target: { value: "Bola Ade" } });
+  fireEvent.click(screen.getByRole("button", { name: "Send payment details" }));
+  expect(await screen.findByText("Payment details sent")).toBeVisible();
+  expect(screen.getByText(/waiting for confirmation/)).toBeVisible();
+  const claim = JSON.parse(fetcher.mock.calls[2]![1].body);
+  expect(claim).toMatchObject({ amount: "25000", senderName: "Bola Ade" });
 });
 it("generates a downloadable school-specific QR locally and warns about localhost", async () => {
   vi.mocked(QRCode.toDataURL).mockImplementation(() =>

@@ -3,11 +3,14 @@ import { schoolDocumentReminders, type AuthenticatedUser } from "@drivemaster/sh
 import { ArrowRight, CircleAlert, Clock3, Wallet } from "lucide-react";
 import { db } from "../../db/db";
 import { DocumentReminders } from "../training/DocumentReminders";
+import type { SetupArea } from "../training/SchoolSetupHome";
 import { matchesTrainingView, type TrainingView } from "../training/trainingViews";
 
 export type TrainingDestination = {
   tab?: "outings" | "setup" | "students" | "costs";
   filter?: TrainingView;
+  book?: boolean;
+  setupArea?: SetupArea;
 };
 export interface DashboardAttention {
   recordsNeedAttention: number;
@@ -44,9 +47,9 @@ export function SchoolDay({
           <p>Open Training to load today&rsquo;s lessons on this device.</p>
           <button
             className="dm-primary"
-            onClick={() => onTraining({ tab: "outings", filter: "today" })}
+            onClick={() => onTraining({ tab: "outings", filter: "today", book: true })}
           >
-            Open Training
+            Book a Training
           </button>
         </section>
         <Attention attention={attention} onSavedRecords={onSavedRecords} onStudents={onStudents} />
@@ -75,12 +78,20 @@ export function SchoolDay({
             <p className="dm-eyebrow">TODAY</p>
             <h2 id="school-day-title">Today&rsquo;s training</h2>
           </div>
-          <button
-            className="dm-primary"
-            onClick={() => onTraining({ tab: "outings", filter: "today" })}
-          >
-            Open Training <ArrowRight size={16} />
-          </button>
+          <div className="workflow-actions">
+            <button
+              className="dm-secondary"
+              onClick={() => onTraining({ tab: "outings", filter: "today" })}
+            >
+              Open Training <ArrowRight size={16} />
+            </button>
+            <button
+              className="dm-primary"
+              onClick={() => onTraining({ tab: "outings", filter: "today", book: true })}
+            >
+              Book a Training
+            </button>
+          </div>
         </div>
         <div className="today-training-grid">
           <button onClick={() => onTraining({ tab: "outings", filter: "today" })}>
@@ -117,8 +128,12 @@ export function SchoolDay({
         {!!reminders.length && (
           <DocumentReminders
             snapshot={snapshot}
-          loadedAt={cache!.loadedAt}
-            onSettings={user.role === "OWNER" ? () => onTraining({ tab: "setup" }) : undefined}
+            loadedAt={cache!.loadedAt}
+            onSettings={
+              user.role === "OWNER"
+                ? (setupArea) => onTraining({ tab: "setup", setupArea })
+                : undefined
+            }
           />
         )}
       </Attention>

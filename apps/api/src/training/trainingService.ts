@@ -861,7 +861,7 @@ export async function trainingSnapshot(
     async (tx) => {
       const user = await tx.user.findFirst({ where: { id: actorId, schoolId, isActive: true } });
       if (!user) fail("Please sign in again.", 401);
-      const [rows, students, vehicles, instructors, payments] = await Promise.all([
+      const [rows, students, vehicles, instructors, payments, studentAccounts] = await Promise.all([
         tx.trainingRecord.findMany({ where: { schoolId } }),
         tx.student.findMany({ where: { schoolId } }),
         tx.vehicle.findMany({ where: { schoolId } }),
@@ -869,7 +869,11 @@ export async function trainingSnapshot(
           where: { schoolId, role: "INSTRUCTOR", isActive: true },
           select: { id: true, name: true }
         }),
-        tx.payment.findMany({ where: { schoolId }, select: { studentId: true, amount: true } })
+        tx.payment.findMany({ where: { schoolId }, select: { studentId: true, amount: true } }),
+        tx.user.findMany({
+          where: { schoolId, role: "STUDENT", studentId: { not: null } },
+          select: { studentId: true }
+        })
       ]);
       const packages = list<TrainingPackage>(rows, "package"),
         enrollments = list<TrainingEnrollment>(rows, "enrollment");
@@ -1063,10 +1067,12 @@ export async function trainingSnapshot(
                   ...safe
                 }) => safe
               ),
-        students: students.map(({ id, name, totalTuition, version }) => ({
+        students: students.map(({ id, name, phone, totalTuition, version }) => ({
           version,
           id,
           name,
+          phone,
+          hasAccount: studentAccounts.some((account) => account.studentId === id),
           totalTuition: totalTuition.toFixed(2)
         })),
         vehicles: vehicles.map(({ id, plateNumber }) => ({ id, plateNumber })),

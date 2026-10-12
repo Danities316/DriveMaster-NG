@@ -315,6 +315,8 @@ export function App() {
             initialStudentId={view.studentId}
             initialTab={view.tab}
             initialFilter={view.filter}
+            initialBook={view.book}
+            initialSetupArea={view.setupArea}
             onAddStudent={() => setView({ screen: "create" })}
             onVehicles={() => setView({ screen: "fleet" })}
           />
@@ -365,12 +367,21 @@ export function App() {
             onEdit={(studentId) => setView({ screen: "edit", studentId })}
             canRecordPayment={true}
             onTraining={(studentId) => setView({ screen: "training", studentId })}
+            onBookTraining={(studentId) =>
+              setView({
+                screen: "training",
+                studentId,
+                tab: "outings",
+                filter: "today",
+                book: true
+              })
+            }
           />
         ) : null}
 
         {view.screen === "create" ? (
           <StudentFormPage
-            schoolId={user.schoolId}
+            user={user}
             onSaved={handleSaved}
             onCancel={() => setView({ screen: "list" })}
           />
@@ -379,7 +390,7 @@ export function App() {
         {view.screen === "edit" ? (
           <EditStudentPage
             studentId={view.studentId}
-            schoolId={user.schoolId}
+            user={user}
             onSaved={handleSaved}
             onCancel={() => setView({ screen: "detail", studentId: view.studentId })}
           />

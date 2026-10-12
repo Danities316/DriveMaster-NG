@@ -129,6 +129,51 @@ it("guides setup to instructor accounts and connects student and vehicle creatio
   expect(document.getElementById("book-outing")).toHaveAttribute("open");
 });
 
+it("creates student access from an eligible registered student without duplicate identity fields", async () => {
+  const owner: AuthenticatedUser = { ...student, id: "owner", role: "OWNER" };
+  await db.trainingCache.put({
+    userId: owner.id,
+    schoolId: owner.schoolId,
+    snapshot: {
+      ...snapshot,
+      userId: owner.id,
+      viewerRole: owner.role,
+      lessons: [],
+      students: [
+        {
+          id: "eligible",
+          name: "Eligible Student",
+          phone: "08012345678",
+          hasAccount: false,
+          totalTuition: "100000.00"
+        },
+        {
+          id: "linked",
+          name: "Linked Student",
+          phone: "08012345679",
+          hasAccount: true,
+          totalTuition: "100000.00"
+        }
+      ]
+    },
+    loadedAt: "2026-01-02"
+  });
+  render(<TrainingPage user={owner} initialTab="setup" />);
+  fireEvent.click(await screen.findByRole("button", { name: "Open People" }));
+  fireEvent.click(screen.getByText("Create instructor or student access", { selector: "summary" }));
+  expect(screen.getByLabelText("Student record (for student accounts)")).toHaveTextContent(
+    "Eligible Student · 08012345678"
+  );
+  expect(screen.getByLabelText("Student record (for student accounts)")).not.toHaveTextContent(
+    "Linked Student"
+  );
+  expect(screen.queryByLabelText("Name")).toBeNull();
+  expect(screen.queryByLabelText("Phone number")).toBeNull();
+  fireEvent.change(screen.getByLabelText("Account type"), { target: { value: "INSTRUCTOR" } });
+  expect(screen.getByLabelText("Name")).toBeVisible();
+  expect(screen.getByLabelText("Phone number")).toBeVisible();
+});
+
 it("organizes owner setup into clear areas and keeps package terms visible", async () => {
   const owner: AuthenticatedUser = { ...student, id: "owner", role: "OWNER" };
   await db.trainingCache.put({

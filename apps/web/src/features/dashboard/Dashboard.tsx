@@ -11,6 +11,7 @@ import {
   Users,
   Wallet,
   Clock3,
+  CalendarPlus,
   ReceiptText
 } from "lucide-react";
 import type { AuthenticatedUser } from "@drivemaster/shared";
@@ -53,6 +54,7 @@ export function Dashboard({
         loadDashboard(user.schoolId, new Date(minute)),
         db.trainingQueue.where("userId").equals(user.id).toArray()
       ]);
+      const trainingCache = await db.trainingCache.get(user.id);
       const ownTraining = training.filter(
         (row) => row.schoolId === user.schoolId && row.role === user.role
       );
@@ -62,6 +64,7 @@ export function Dashboard({
           pending: data.pending + ownTraining.filter((row) => row.status !== "FAILED").length,
           review: data.review + ownTraining.filter((row) => row.status === "FAILED").length
         },
+        trainingSnapshot: trainingCache?.schoolId === user.schoolId ? trainingCache.snapshot : null,
         error: false
       };
     } catch {
@@ -86,6 +89,7 @@ export function Dashboard({
         Loading your school overview…
       </div>
     );
+  const trainingSnapshot = result?.trainingSnapshot ?? null;
   const rows = data.paymentRows.filter(
     (row) =>
       (status === "All statuses" ||
@@ -97,6 +101,41 @@ export function Dashboard({
   const currentPage = Math.min(page, lastPage);
   const greeting =
     user.role === "OWNER" ? "Your school, at a glance." : "Ready for a productive day.";
+  const warnings: { title: string; detail: string; action: string; onClick: () => void }[] = [];
+  if (data.review > 0)
+    warnings.push({
+      title: "Saved records need attention",
+      detail: `${data.review} record${data.review === 1 ? "" : "s"} could not be sent to the school account.`,
+      action: "Review saved records",
+      onClick: onSync
+    });
+  if (data.owing.length > 0)
+    warnings.push({
+      title: "Students still have money to pay",
+      detail: `${data.owing.length} student${data.owing.length === 1 ? "" : "s"} have an outstanding balance.`,
+      action: "View balances",
+      onClick: onStudents
+    });
+  if (user.role === "OWNER" && trainingSnapshot) {
+    const startedWithoutSpend = trainingSnapshot.outings.filter(
+      (outing) =>
+        outing.data.status === "STARTED" && outing.data.fuelIssued && !outing.data.fuelSpent
+    ).length;
+    if (startedWithoutSpend)
+      warnings.push({
+        title: "Fuel money needs checking",
+        detail: `${startedWithoutSpend} training trip${startedWithoutSpend === 1 ? "" : "s"} has fuel issued but no spending recorded yet.`,
+        action: "Review training",
+        onClick: () => onTraining?.({ tab: "outings" })
+      });
+    if (!trainingSnapshot.settings)
+      warnings.push({
+        title: "Fuel allowance is not set",
+        detail: "Set the amount given per student before booking training.",
+        action: "Open training setup",
+        onClick: () => onTraining?.({ tab: "setup" })
+      });
+  }
   return (
     <div className="dashboard-content">
       <div className="dashboard-heading">
@@ -110,6 +149,15 @@ export function Dashboard({
           </p>
         </div>
         <div className="dashboard-actions">
+          {!paymentsOnly && onTraining && (
+            <button
+              className="dm-secondary"
+              onClick={() => onTraining({ tab: "outings", filter: "today", book: true })}
+            >
+              <CalendarPlus size={17} />
+              Book a Training
+            </button>
+          )}
           <button className="dm-secondary" onClick={onStudents}>
             <Wallet size={17} />
             Record payment
@@ -154,6 +202,34 @@ export function Dashboard({
             View saved records <ArrowRight size={14} />
           </button>
         </div>
+      )}
+      {!paymentsOnly && warnings.length > 0 && (
+        <section
+          className="dm-panel dashboard-attention"
+          aria-labelledby="dashboard-attention-heading"
+        >
+          <div className="panel-heading">
+            <div>
+              <h2 id="dashboard-attention-heading">Needs attention</h2>
+              <p>These are the issues worth checking now.</p>
+            </div>
+            <CircleAlert size={20} aria-hidden="true" />
+          </div>
+          <div className="dashboard-attention-list">
+            {warnings.slice(0, 5).map((warning) => (
+              <article key={warning.title}>
+                <div>
+                  <strong>{warning.title}</strong>
+                  <p>{warning.detail}</p>
+                </div>
+                <button className="text-button" onClick={warning.onClick}>
+                  {warning.action}
+                  <ArrowRight size={15} />
+                </button>
+              </article>
+            ))}
+          </div>
+        </section>
       )}
       {paymentsOnly && (
         <section className="money-links" aria-label="Money areas">

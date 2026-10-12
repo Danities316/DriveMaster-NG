@@ -3,6 +3,7 @@ import { useLiveQuery } from "dexie-react-hooks";
 import { Plus, Search, User } from "lucide-react";
 import { queryLocalStudents } from "./studentLocalStore";
 import { refreshStudentsFromServer } from "./studentService";
+import { StudentCsvImport } from "./StudentCsvImport";
 
 interface StudentListPageProps {
   schoolId: string;
@@ -18,6 +19,7 @@ interface StudentListPageProps {
  */
 export function StudentListPage({ schoolId, onSelectStudent, onAddStudent }: StudentListPageProps) {
   const [search, setSearch] = useState("");
+  const [showImport, setShowImport] = useState(false);
 
   useEffect(() => {
     void refreshStudentsFromServer();
@@ -45,7 +47,15 @@ export function StudentListPage({ schoolId, onSelectStudent, onAddStudent }: Stu
           <Plus size={20} aria-hidden="true" />
           Add student
         </button>
+        <button
+          type="button"
+          className="dm-secondary"
+          onClick={() => setShowImport((value) => !value)}
+        >
+          {showImport ? "Close import" : "Import CSV"}
+        </button>
       </div>
+      {showImport ? <StudentCsvImport schoolId={schoolId} /> : null}
 
       <div className="student-search">
         <Search

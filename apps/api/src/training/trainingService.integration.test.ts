@@ -1021,7 +1021,7 @@ describe.skipIf(!url)("training PostgreSQL workflow", () => {
     };
     await request(app).get("/api/training/snapshot").set({ Cookie: headers.Cookie }).expect(409);
     const studentId = randomUUID(),
-      phone = randomUUID().slice(0, 24);
+      phone = "08012345670";
     await client.student.create({
       data: {
         id: studentId,
@@ -1035,10 +1035,11 @@ describe.skipIf(!url)("training PostgreSQL workflow", () => {
     await request(app)
       .post("/api/training/accounts")
       .set(headers)
-      .send({ role: "STUDENT", studentId, name: "Ignored", phone, password: "Private-pass-123" })
+      .send({ role: "STUDENT", studentId, password: "Private-pass-123" })
       .expect(201);
     const account = await client.user.findFirstOrThrow({ where: { studentId } });
     expect(account.name).toBe("New student");
+    expect(account.phone).toBe("+2348012345670");
     expect(account.passwordHash).not.toBe("Private-pass-123");
     const login = await request(app)
       .post("/api/auth/login")

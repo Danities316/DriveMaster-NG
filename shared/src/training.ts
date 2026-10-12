@@ -2,6 +2,7 @@ import { normalizeMoney, subtractMoney, sumMoney } from "./money.js";
 import { lagosDay, RECORDED_DSSP_MINIMUM_DAYS, type SchoolRules } from "./schoolRules.js";
 import type { EnrollmentSettings } from "./enrollment.js";
 import type { TrainingExpense, VehicleDocuments } from "./operations.js";
+import type { SchoolCurriculum } from "./curriculum.js";
 
 export interface TrainingRecord<T> {
   id: string;
@@ -14,6 +15,16 @@ export interface TrainingPackage {
   minutes: number;
   price: string;
 }
+export const DEFAULT_STARTER_PACKAGE: TrainingPackage = {
+  name: "Starter package",
+  sessions: 26,
+  minutes: 30,
+  price: "0.00"
+};
+export const DEFAULT_TRAINING_SETTINGS: TrainingSettings = {
+  fuelPerStudent: "1500.00",
+  reason: "Starting fuel allowance"
+};
 export interface TrainingEnrollment extends TrainingPackage {
   applicationId?: string;
   activationStatus?: "PENDING_PAYMENT" | "ACTIVE";
@@ -114,6 +125,7 @@ export interface StudentLessonView {
   reviewReason?: string;
 }
 export interface TrainingSnapshot {
+  curriculum?: TrainingRecord<SchoolCurriculum> | null;
   vehicleDocuments?: TrainingRecord<VehicleDocuments>[];
   instructorPermitDates?: { instructorId: string; expiresOn: string | null }[];
   expenses?: TrainingRecord<TrainingExpense>[];
@@ -128,7 +140,14 @@ export interface TrainingSnapshot {
   settings: TrainingRecord<TrainingSettings> | null;
   salaries: TrainingRecord<InstructorSalary>[];
   outings: TrainingRecord<TrainingOuting>[];
-  students: { id: string; name: string; totalTuition: string; version?: number }[];
+  students: {
+    id: string;
+    name: string;
+    phone?: string;
+    hasAccount?: boolean;
+    totalTuition: string;
+    version?: number;
+  }[];
   instructors: { id: string; name: string }[];
   vehicles: { id: string; plateNumber: string }[];
   summaries: StudentTrainingSummary[];

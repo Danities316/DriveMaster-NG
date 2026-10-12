@@ -89,6 +89,7 @@ enum MutationEntity {
 
 model School {
   enrollmentApplications    EnrollmentApplication[]
+  paymentClaims             PaymentClaim[]
   school_cac_rc             String?                 @unique
   frsc_accreditation_number String?
   profileVersion            Int                     @default(0)
@@ -228,10 +229,36 @@ model EnrollmentApplication {
   updatedAt       DateTime @updatedAt
   school          School   @relation(fields: [schoolId], references: [id], onDelete: Restrict)
   student         Student? @relation(fields: [studentId], references: [id], onDelete: Restrict)
+  paymentClaims   PaymentClaim[]
 
   @@index([schoolId, status, createdAt])
   @@index([schoolId, phone])
   @@map("enrollment_applications")
+}
+
+model PaymentClaim {
+  id            String   @id
+  schoolId      String
+  applicationId String
+  amount        Decimal  @db.Decimal(12, 2)
+  transferDate  DateTime
+  senderName    String
+  reference     String?
+  status        String   @default("WAITING")
+  requestHash   String
+  receipt       Bytes?
+  receiptMime   String?
+  reviewNote    String?
+  reviewedAt    DateTime?
+  reviewedById  String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  school        School   @relation(fields: [schoolId], references: [id], onDelete: Restrict)
+  application   EnrollmentApplication @relation(fields: [applicationId], references: [id], onDelete: Restrict)
+
+  @@index([schoolId, status, createdAt])
+  @@index([applicationId, createdAt])
+  @@map("payment_claims")
 }
 
 // Mutations and their acknowledgements commit atomically with business records.

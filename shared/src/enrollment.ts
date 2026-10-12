@@ -35,6 +35,12 @@ export interface EnrollmentSettings {
   packageIds: string[];
   requiredFields: IntakeField[];
   allowUnpaidStart: boolean;
+  showBankTransfer: boolean;
+  bankName: string;
+  accountNumber: string;
+  accountName: string;
+  paymentInstructions: string;
+  allowReceiptUpload: boolean;
   reason: string;
 }
 export const DEFAULT_ENROLLMENT_SETTINGS: EnrollmentSettings = {
@@ -43,11 +49,27 @@ export const DEFAULT_ENROLLMENT_SETTINGS: EnrollmentSettings = {
   packageIds: [],
   requiredFields: [],
   allowUnpaidStart: false,
+  showBankTransfer: false,
+  bankName: "",
+  accountNumber: "",
+  accountName: "",
+  paymentInstructions: "Use your name as the transfer description.",
+  allowReceiptUpload: true,
   reason: "Starting enrollment settings"
 };
 export interface PublicEnrollmentInfo {
   school: { id: string; name: string; phone: string };
-  settings: Pick<EnrollmentSettings, "welcome" | "requiredFields">;
+  settings: Pick<
+    EnrollmentSettings,
+    | "welcome"
+    | "requiredFields"
+    | "showBankTransfer"
+    | "bankName"
+    | "accountNumber"
+    | "accountName"
+    | "paymentInstructions"
+    | "allowReceiptUpload"
+  >;
   settingsVersion: number;
   rulesVersion: number;
   schoolTargetDays: number;
@@ -66,4 +88,17 @@ export interface EnrollmentApplicationView {
   details?: ApplicantDetails;
   paid: string;
   reviewReason: string | null;
+  paymentClaims: PaymentClaimView[];
+}
+export interface PaymentClaimView {
+  id: string;
+  amount: string;
+  transferDate: string;
+  senderName: string;
+  reference: string | null;
+  status: "WAITING" | "CONFIRMED" | "REJECTED";
+  hasReceipt: boolean;
+  createdAt: string;
+  reviewedAt: string | null;
+  reviewNote: string | null;
 }

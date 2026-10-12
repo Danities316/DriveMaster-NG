@@ -61,6 +61,10 @@ async function parseJsonResponse<T>(response: Response): Promise<T> {
 }
 
 export async function login(phone: string, password: string): Promise<AuthenticatedUser> {
+  // An explicit sign-in attempt must never leave another account's cached
+  // identity available if the request fails or the device is shared.
+  localStorage.setItem(SIGNED_OUT_KEY, "true");
+  localStorage.removeItem(LAST_KNOWN_USER_KEY);
   const response = await fetch(`${API_BASE_URL}/auth/login`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },

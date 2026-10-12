@@ -126,3 +126,21 @@ it("does not show cached owner information after the account role changes", asyn
   expect(await screen.findByText(/Open Training to load today/)).toBeVisible();
   expect(screen.queryByText(/Based on training records loaded/)).toBeNull();
 });
+
+it("opens the document settings area directly from a dashboard reminder", async () => {
+  await db.trainingCache.put({
+    userId: user.id,
+    schoolId: user.schoolId,
+    loadedAt: new Date().toISOString(),
+    snapshot: {
+      ...snapshot,
+      vehicles: [{ id: "vehicle", plateNumber: "ABC123" }],
+      vehicleDocuments: []
+    }
+  });
+  const callbacks = props();
+  render(<SchoolDay {...callbacks} />);
+  fireEvent.click(await screen.findByText("2 document reminders to check"));
+  fireEvent.click(screen.getByRole("button", { name: "Update document details" }));
+  expect(callbacks.onTraining).toHaveBeenCalledWith({ tab: "setup", setupArea: "vehicles" });
+});

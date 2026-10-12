@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { INTAKE_FIELDS, type EnrollmentApplicationView } from "@drivemaster/shared";
-import { trainingRequest } from "./trainingLocal";
+import { openTrainingFile, trainingRequest } from "./trainingLocal";
 import { EntryForm, Field } from "./TrainingFields";
 import { ApplicantFields } from "./ApplicantFields";
 import { naira } from "../dashboard/dashboardData";
@@ -65,8 +65,8 @@ export function EnrollmentReview({
     <section className="dm-panel training-panel">
       <h2>Student registrations</h2>
       <p>
-        1. Review the details and create the student record. 2. Open Students to record payment. 3.
-        Return here, load the list and activate training. Payment must be sent to the server first.
+        1. Review the details and create the student record. 2. Check any reported bank transfer
+        against the school’s bank account and confirm it. 3. Activate training after payment.
       </p>
       <p>
         Registrations and private biodata are available online. Records are shown in pages of 100.
@@ -162,6 +162,86 @@ export function EnrollmentReview({
                     ? "Student record created — waiting for payment or activation"
                     : "New registration — waiting for review"}
             </p>
+            {!!application.paymentClaims.length && (
+              <div className="payment-claim-list">
+                <h4>Bank transfers reported by this student</h4>
+                {application.paymentClaims.map((claim) => (
+                  <article key={claim.id} className={`payment-claim ${claim.status.toLowerCase()}`}>
+                    <div>
+                      <strong>{naira(claim.amount)}</strong>
+                      <span>
+                        {claim.senderName} ·{" "}
+                        {new Date(claim.transferDate).toLocaleDateString("en-NG")}
+                      </span>
+                      <small>
+                        {claim.status === "WAITING"
+                          ? "Waiting for the school to check its bank account"
+                          : claim.status === "CONFIRMED"
+                            ? "Confirmed and added to the student’s payments"
+                            : "Rejected — not added to payments"}
+                      </small>
+                    </div>
+                    {claim.reference && <p>Bank reference: {claim.reference}</p>}
+                    {claim.hasReceipt && (
+                      <button
+                        type="button"
+                        className="dm-secondary"
+                        onClick={() =>
+                          void openTrainingFile(
+                            `applications/payment-claims/${encodeURIComponent(claim.id)}/receipt`
+                          ).catch((e) =>
+                            setError(e instanceof Error ? e.message : "Unable to open receipt.")
+                          )
+                        }
+                      >
+                        View receipt
+                      </button>
+                    )}
+                    {claim.status === "WAITING" && !application.studentId && (
+                      <p className="dm-notice">
+                        Create the student record before confirming this payment.
+                      </p>
+                    )}
+                    {claim.status === "WAITING" && application.studentId && (
+                      <>
+                        <EntryForm
+                          title="Confirm money received"
+                          onSave={async (form) => {
+                            setMessage("");
+                            await trainingRequest(
+                              `applications/payment-claims/${encodeURIComponent(claim.id)}`,
+                              { action: "CONFIRM", note: String(form.get("note") ?? "") }
+                            );
+                            setMessage("Payment confirmed and added to the student’s balance.");
+                            await load();
+                            await onSaved();
+                          }}
+                        >
+                          <Field label="Confirmation note" name="note" />
+                        </EntryForm>
+                        <details>
+                          <summary>Reject this transfer report</summary>
+                          <EntryForm
+                            title="Reject transfer report"
+                            onSave={async (form) => {
+                              await trainingRequest(
+                                `applications/payment-claims/${encodeURIComponent(claim.id)}`,
+                                { action: "REJECT", note: String(form.get("note") ?? "") }
+                              );
+                              setMessage("Transfer report rejected. No payment was added.");
+                              await load();
+                            }}
+                          >
+                            <Field label="Reason for rejecting" name="note" />
+                          </EntryForm>
+                        </details>
+                      </>
+                    )}
+                    {claim.reviewNote && <p>Office note: {claim.reviewNote}</p>}
+                  </article>
+                ))}
+              </div>
+            )}
             {owner && application.details && (
               <details>
                 <summary>View licence-preparation details (private)</summary>

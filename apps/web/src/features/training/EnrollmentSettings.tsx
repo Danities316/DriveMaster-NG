@@ -57,6 +57,12 @@ export function EnrollmentSettings({
               packageIds: f.getAll("packageIds").map(String),
               requiredFields: f.getAll("requiredFields").map(String),
               allowUnpaidStart: f.get("allowUnpaidStart") === "on",
+              showBankTransfer: f.get("showBankTransfer") === "on",
+              bankName: String(f.get("bankName") ?? ""),
+              accountNumber: String(f.get("accountNumber") ?? ""),
+              accountName: String(f.get("accountName") ?? ""),
+              paymentInstructions: String(f.get("paymentInstructions") ?? ""),
+              allowReceiptUpload: f.get("allowReceiptUpload") === "on",
               reason: String(f.get("reason") ?? "")
             },
             record?.version
@@ -122,6 +128,52 @@ export function EnrollmentSettings({
             payment.
           </p>
         </details>
+        <fieldset className="enrollment-payment-settings">
+          <legend>Payment details shown after registration</legend>
+          <p>
+            Students can transfer directly to the school and report the transfer. The office must
+            check the bank account before the payment is added to the student’s balance.
+          </p>
+          <label className="training-check">
+            <input
+              type="checkbox"
+              name="showBankTransfer"
+              defaultChecked={settings.showBankTransfer}
+            />
+            Show bank-transfer details to registered students
+          </label>
+          <Field label="Bank name" name="bankName" initial={settings.bankName} required={false} />
+          <Field
+            label="Account number (10 digits)"
+            name="accountNumber"
+            initial={settings.accountNumber}
+            required={false}
+          />
+          <Field
+            label="Account name"
+            name="accountName"
+            initial={settings.accountName}
+            required={false}
+          />
+          <Field
+            label="Payment instructions"
+            name="paymentInstructions"
+            initial={settings.paymentInstructions}
+            required={false}
+          />
+          <label className="training-check">
+            <input
+              type="checkbox"
+              name="allowReceiptUpload"
+              defaultChecked={settings.allowReceiptUpload}
+            />
+            Let students attach a receipt screenshot
+          </label>
+          <p className="dm-notice">
+            Only the owner can change these public account details. Saving a transfer report does
+            not confirm payment or activate training.
+          </p>
+        </fieldset>
         <Field label="Reason for changing enrollment settings" name="reason" />
       </EntryForm>
       <div className="enrollment-share">

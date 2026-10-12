@@ -5,6 +5,7 @@ import type { AuthDeps } from "../auth/authService.js";
 import { KnownApiError } from "../middleware/errorHandler.js";
 import { getPrismaClient } from "../prisma.js";
 import { hashPassword, verifyPassword } from "../auth/password.js";
+import { normalizeNigerianPhone } from "../auth/phone.js";
 import { executeTraining, trainingSnapshot } from "./trainingService.js";
 import { createProfileRouter } from "./profileRoutes.js";
 import { createEnrollmentReviewRouter } from "./enrollmentRoutes.js";
@@ -66,13 +67,19 @@ export function createTrainingRouter(options: { authSecret: string; authDeps: Au
       if (req.auth!.role !== "OWNER")
         throw new KnownApiError("Only the owner can create accounts.", 403, "FORBIDDEN");
       const input = z
-        .object({
-          role: z.enum(["INSTRUCTOR", "STUDENT"]),
-          name: z.string().trim().min(1).max(100),
-          phone: z.string().trim().min(7).max(30),
-          password: z.string().min(10).max(128),
-          studentId: z.string().min(1).max(100).optional()
-        })
+        .discriminatedUnion("role", [
+          z.object({
+            role: z.literal("INSTRUCTOR"),
+            name: z.string().trim().min(1, "Enter the instructor's name.").max(100),
+            phone: z.string().trim().min(1, "Enter the instructor's phone number.").max(30),
+            password: z.string().min(10, "Use at least 10 characters for the password.").max(128)
+          }),
+          z.object({
+            role: z.literal("STUDENT"),
+            studentId: z.string().min(1, "Choose a registered student.").max(100),
+            password: z.string().min(10, "Use at least 10 characters for the password.").max(128)
+          })
+        ])
         .parse(req.body);
       const passwordHash = hashPassword(input.password);
       await getPrismaClient().$transaction(async (tx) => {
@@ -90,19 +97,30 @@ export function createTrainingRouter(options: { authSecret: string; authDeps: Au
         const student =
           input.role === "STUDENT"
             ? await tx.student.findFirst({
-              where: { id: input.studentId ?? "", schoolId: owner.schoolId }
-            })
+                where: { id: input.studentId, schoolId: owner.schoolId }
+              })
             : null;
-        if (input.role === "STUDENT" && (!student || student.phone !== input.phone))
+        if (input.role === "STUDENT" && !student)
           throw new KnownApiError(
-            "Use this student's registered phone number.",
+            "Choose a registered student from this school.",
             400,
             "INVALID_STUDENT"
           );
+        const phone = normalizeNigerianPhone(
+          student?.phone ?? (input.role === "INSTRUCTOR" ? input.phone : "")
+        );
+        if (!phone)
+          throw new KnownApiError(
+            input.role === "STUDENT"
+              ? "This student's registered phone number is invalid. Update the student record first."
+              : "Enter a valid Nigerian phone number.",
+            400,
+            "VALIDATION_ERROR"
+          );
         const account = await tx.user.create({
           data: {
-            name: student?.name ?? input.name,
-            phone: input.phone,
+            name: student?.name ?? (input.role === "INSTRUCTOR" ? input.name : ""),
+            phone,
             role: input.role,
             passwordHash,
             schoolId: owner.schoolId,
@@ -163,10 +181,10 @@ export function createTrainingRouter(options: { authSecret: string; authDeps: Au
       next(
         e instanceof ZodError
           ? new KnownApiError(
-            "Use at least 10 characters for your new password.",
-            400,
-            "VALIDATION_ERROR"
-          )
+              "Use at least 10 characters for your new password.",
+              400,
+              "VALIDATION_ERROR"
+            )
           : e
       );
     }

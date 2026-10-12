@@ -2,7 +2,8 @@ import { type FormEvent, useEffect, useState } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
 import { ArrowLeft, Pencil } from "lucide-react";
 import { isValidStoredMoney, subtractMoney, type AuthenticatedUser } from "@drivemaster/shared";
-import { StudentProgressSummary } from "../training/StudentProgressSummary";
+import { StudentTrainingReport } from "../training/StudentTrainingReport";
+import { WhatsAppMessages } from "./WhatsAppMessages";
 import { db } from "../../db/db";
 import { StudentApiError } from "./studentApi";
 import { requestSync } from "../../sync/queue";
@@ -18,6 +19,7 @@ interface StudentDetailPageProps {
   onEdit: (studentId: string) => void;
   canRecordPayment?: boolean;
   onTraining?: (studentId: string) => void;
+  onBookTraining?: (studentId: string) => void;
 }
 
 interface PaymentFormState {
@@ -67,6 +69,7 @@ export function StudentDetailPage({
   onBack,
   onEdit,
   onTraining,
+  onBookTraining,
   canRecordPayment = false
 }: StudentDetailPageProps) {
   const student = useLiveQuery(() => getLocalStudent(studentId), [studentId]);
@@ -166,6 +169,15 @@ export function StudentDetailPage({
     training?.schoolId === student.schoolId
       ? training.snapshot.summaries.find((s) => s.studentId === studentId)
       : undefined;
+  const studentLessons = trainingSummary
+    ? (training?.snapshot.lessons ?? []).filter((lesson) =>
+        training?.snapshot.outings.some(
+          (outing) =>
+            outing.id === lesson.outingId &&
+            outing.data.members.some((member) => member.studentId === studentId)
+        )
+      )
+    : [];
   const savedPayment = localPaymentHistory?.payments.find((p) => p.id === savedPaymentId);
   const savedPending =
     !!savedPaymentId && !!localPaymentHistory?.queuedPaymentIds.includes(savedPaymentId);
@@ -196,6 +208,7 @@ export function StudentDetailPage({
       <div>
         <h1 className="text-xl font-semibold text-slate-900">{student.name}</h1>
         <p className="text-base text-slate-600">{student.phone}</p>
+        <WhatsAppMessages student={student} summary={trainingSummary} />
       </div>
 
       <section
@@ -254,7 +267,11 @@ export function StudentDetailPage({
           <h2 className="text-base font-medium">Training</h2>
           {trainingSummary ? (
             <>
-              <StudentProgressSummary summary={trainingSummary} />
+              <StudentTrainingReport
+                summary={trainingSummary}
+                lessons={studentLessons}
+                showMoney={viewer?.role === "OWNER" || viewer?.role === "RECEPTIONIST"}
+              />
               <p className="text-sm text-slate-600">
                 Accepted training records, last loaded {formatDate(training!.loadedAt)}. Open
                 training to refresh.
@@ -270,6 +287,13 @@ export function StudentDetailPage({
           <button className="dm-secondary min-h-[48px]" onClick={() => onTraining(studentId)}>
             View training
           </button>
+          {onBookTraining &&
+            trainingSummary &&
+            trainingSummary.remaining - trainingSummary.booked > 0 && (
+              <button className="dm-primary min-h-[48px]" onClick={() => onBookTraining(studentId)}>
+                Book training for {student.name}
+              </button>
+            )}
         </section>
       )}
 

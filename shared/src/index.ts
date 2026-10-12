@@ -67,3 +67,4 @@ export * from "./training.js";
 export * from "./schoolRules.js";
 export * from "./enrollment.js";
 export * from "./operations.js";
+export * from "./curriculum.js";

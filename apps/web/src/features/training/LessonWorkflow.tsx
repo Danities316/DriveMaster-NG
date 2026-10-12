@@ -9,6 +9,24 @@ import { naira } from "../dashboard/dashboardData";
 
 const localTime = (date = new Date()) =>
   new Date(date.getTime() - date.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+export const COMMON_LESSON_TOPICS = [
+  "Know your car and basic controls",
+  "Simulator and basic vehicle control",
+  "Road signs, rules and safe driving",
+  "Traffic lights, wardens and hand signals",
+  "Junctions, roundabouts and right of way",
+  "Overtaking and meeting other vehicles",
+  "Steering, gears and road positioning",
+  "Moving off, stopping and observation",
+  "Real-road driving practice",
+  "Straight-line and corner reversing",
+  "Parking and manoeuvres",
+  "Revision and internal test",
+  "FRSC theory and test preparation",
+  "Test preparation and reverse practice",
+  "Road practice and confidence building"
+] as const;
+const OTHER_TOPIC = "__OTHER__";
 type Props = {
   outing: TrainingOuting;
   name: (id: string) => string;
@@ -191,11 +209,14 @@ export function FinishOutingForm({ outing, name, disabled, onSave }: Props) {
     [busy, setBusy] = useState(false),
     [error, setError] = useState("");
   const [review, setReview] = useState<FormData>();
+  const [lessonTopic, setLessonTopic] = useState("");
+  const [otherTopic, setOtherTopic] = useState("");
   const formRef = useRef<HTMLFormElement>(null);
   const heading = useRef<HTMLHeadingElement>(null);
   const members = outing.members.filter((m) => m.status === "DRIVING");
-  const titles = ["Driving time and mileage", "Fuel bought", "Check and save"];
+  const titles = ["Lesson and mileage", "Fuel bought", "Check and save"];
   const read = (f: FormData, key: string) => String(f.get(key) ?? "");
+  const sharedTopic = () => (lessonTopic === OTHER_TOPIC ? otherTopic : lessonTopic).trim();
   function go(next: number) {
     setStep(next);
     setError("");
@@ -220,8 +241,6 @@ export function FinishOutingForm({ outing, name, disabled, onSave }: Props) {
       field.setCustomValidity("");
       field.removeAttribute("aria-invalid");
       const student = members.find((m) => field.name === `minutes-${m.studentId}`);
-      if (field.name.startsWith("topics-") && !field.value.trim())
-        return fail(field.name, "Enter what was taught during this lesson.");
       if (!field.checkValidity()) {
         const message =
           field.name === "odometer" && field.validity.rangeUnderflow
@@ -236,6 +255,14 @@ export function FinishOutingForm({ outing, name, disabled, onSave }: Props) {
     const end = Date.parse(read(f, "endedAt")),
       start = Date.parse(outing.startedAt!);
     if (section === 0) {
+      if (!sharedTopic()) {
+        const missing = members.find((member) => !read(f, `topics-${member.studentId}`).trim());
+        if (missing)
+          return fail(
+            "lessonTopic",
+            "Choose what was taught. Open individual changes only when students did different topics."
+          );
+      }
       if (end <= start || end > Date.now() + 300000 || end - start > 43200000)
         return fail(
           "endedAt",
@@ -292,7 +319,7 @@ export function FinishOutingForm({ outing, name, disabled, onSave }: Props) {
         lessons: members.map((m) => ({
           studentId: m.studentId,
           minutes: Number(f.get(`minutes-${m.studentId}`)),
-          topics: read(f, `topics-${m.studentId}`),
+          topics: read(f, `topics-${m.studentId}`).trim() || sharedTopic(),
           note: read(f, `note-${m.studentId}`)
         }))
       });
@@ -350,34 +377,77 @@ export function FinishOutingForm({ outing, name, disabled, onSave }: Props) {
               Distance driven: {distance.toLocaleString("en-NG")} km
             </p>
           )}
-          <h4>2. What did each student do?</h4>
-          {members.map((m) => (
-            <fieldset className="workflow-student" key={m.studentId}>
-              <legend>{name(m.studentId)}</legend>
+          <div className="lesson-topic-card">
+            <label>
+              What did you teach today?
+              <select
+                name="lessonTopic"
+                value={lessonTopic}
+                aria-invalid={fieldError?.name === "lessonTopic" ? true : undefined}
+                onChange={(event) => {
+                  setLessonTopic(event.target.value);
+                  setFieldError(undefined);
+                }}
+              >
+                <option value="">Choose the main lesson</option>
+                {COMMON_LESSON_TOPICS.map((topic) => (
+                  <option key={topic} value={topic}>
+                    {topic}
+                  </option>
+                ))}
+                <option value={OTHER_TOPIC}>Something else</option>
+              </select>
+            </label>
+            {lessonTopic === OTHER_TOPIC && (
               <Input
-                label={`Driving minutes — ${name(m.studentId)}`}
-                name={`minutes-${m.studentId}`}
-                type="number"
-                min={0}
-                max={180}
-                step="1"
-                initial={30}
+                label="Describe what was taught"
+                name="otherTopic"
+                initial={otherTopic}
+                onChange={setOtherTopic}
               />
-              <Input
-                label={`Topics taught — ${name(m.studentId)}`}
-                name={`topics-${m.studentId}`}
-              />
-              <Input
-                label={`Notes (optional) — ${name(m.studentId)}`}
-                name={`note-${m.studentId}`}
-                required={false}
-              />
-            </fieldset>
-          ))}
-          <p>
-            Enter the time each student actually drove. Less than 30 minutes will be recorded as a
-            short lesson for the owner to review. Fuel and other costs are still recorded.
-          </p>
+            )}
+            {fieldError?.name === "lessonTopic" && (
+              <span className="fleet-error" role="alert">
+                {fieldError.message}
+              </span>
+            )}
+            <p>
+              This lesson will be used for everyone in the car. Each student is already set to 30
+              driving minutes.
+            </p>
+          </div>
+          <details className="lesson-student-changes">
+            <summary>Change time, topic or notes for one student</summary>
+            <p>Open this only when a student did something different.</p>
+            {members.map((m) => (
+              <fieldset className="workflow-student" key={m.studentId}>
+                <legend>{name(m.studentId)}</legend>
+                <Input
+                  label={`Driving minutes — ${name(m.studentId)}`}
+                  name={`minutes-${m.studentId}`}
+                  type="number"
+                  min={0}
+                  max={180}
+                  step="1"
+                  initial={30}
+                />
+                <Input
+                  label={`Different topic (optional) — ${name(m.studentId)}`}
+                  name={`topics-${m.studentId}`}
+                  required={false}
+                />
+                <Input
+                  label={`Notes (optional) — ${name(m.studentId)}`}
+                  name={`note-${m.studentId}`}
+                  required={false}
+                />
+              </fieldset>
+            ))}
+            <p>
+              Less than 30 minutes will be recorded as a short lesson for the owner to review. Fuel
+              and other costs are still recorded.
+            </p>
+          </details>
         </fieldset>
         <fieldset data-step="1" hidden={step !== 1}>
           <legend>3. What happened to the fuel money?</legend>
@@ -470,7 +540,7 @@ export function FinishOutingForm({ outing, name, disabled, onSave }: Props) {
               {members.map((m) => (
                 <li key={m.studentId}>
                   <strong>{name(m.studentId)}</strong>: {read(review, `minutes-${m.studentId}`)}{" "}
-                  minutes · {read(review, `topics-${m.studentId}`)}
+                  minutes · {read(review, `topics-${m.studentId}`).trim() || sharedTopic()}
                   {read(review, `note-${m.studentId}`) &&
                     ` · ${read(review, `note-${m.studentId}`)}`}
                 </li>

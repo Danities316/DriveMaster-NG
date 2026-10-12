@@ -1,11 +1,14 @@
 import { useState, type FormEvent } from "react";
-import type { StudentWithBalance } from "@drivemaster/shared";
+import { useLiveQuery } from "dexie-react-hooks";
+import type { AuthenticatedUser, StudentWithBalance } from "@drivemaster/shared";
 import { isValidStoredMoney, isValidDate } from "@drivemaster/shared";
 import { StudentApiError } from "./studentApi";
-import { createStudentOffline, updateStudentOffline } from "./studentService";
+import { createStudentWithPackageOffline, updateStudentOffline } from "./studentService";
+import { db } from "../../db/db";
+import { naira } from "../dashboard/dashboardData";
 
 interface StudentFormPageProps {
-  schoolId: string;
+  user: AuthenticatedUser;
   /** Present when editing an existing student; absent when creating a new one. */
   existingStudent?: StudentWithBalance;
   onSaved: (student: StudentWithBalance, queued: boolean) => void;
@@ -18,6 +21,7 @@ interface FormState {
   licenseNumber: string;
   enrollmentDate: string;
   totalTuition: string;
+  packageId: string;
 }
 
 function toFormState(student?: StudentWithBalance): FormState {
@@ -26,7 +30,8 @@ function toFormState(student?: StudentWithBalance): FormState {
     phone: student?.phone ?? "",
     licenseNumber: student?.licenseNumber ?? "",
     enrollmentDate: student?.enrollmentDate.slice(0, 10) ?? new Date().toISOString().slice(0, 10),
-    totalTuition: student?.totalTuition ?? ""
+    totalTuition: student?.totalTuition ?? "",
+    packageId: ""
   };
 }
 
@@ -39,7 +44,7 @@ function toFormState(student?: StudentWithBalance): FormState {
  * "nice to have" inputs.
  */
 export function StudentFormPage({
-  schoolId,
+  user,
   existingStudent,
   onSaved,
   onCancel
@@ -47,6 +52,12 @@ export function StudentFormPage({
   const [form, setForm] = useState<FormState>(() => toFormState(existingStudent));
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const training = useLiveQuery(() => db.trainingCache.get(user.id), [user.id]);
+  const packages =
+    training?.schoolId === user.schoolId && training.snapshot.viewerRole === user.role
+      ? training.snapshot.packages
+      : [];
+  const selectedPackage = packages.find((entry) => entry.id === form.packageId);
 
   const isEditing = existingStudent !== undefined;
 
@@ -66,8 +77,12 @@ export function StudentFormPage({
       setError("Please enter a phone number.");
       return;
     }
-    if (!isValidStoredMoney(form.totalTuition.trim())) {
+    if (isEditing && !isValidStoredMoney(form.totalTuition.trim())) {
       setError("Please enter a valid tuition amount, e.g. 150000 or 150000.00");
+      return;
+    }
+    if (!isEditing && !selectedPackage) {
+      setError("Please choose a training package.");
       return;
     }
 
@@ -88,15 +103,16 @@ export function StudentFormPage({
         });
         onSaved(result.student, result.queued);
       } else {
-        const result = await createStudentOffline(
+        const result = await createStudentWithPackageOffline(
           {
             name: form.name.trim(),
             phone: form.phone.trim(),
             licenseNumber: form.licenseNumber.trim() || null,
             enrollmentDate: form.enrollmentDate,
-            totalTuition: form.totalTuition.trim()
+            totalTuition: selectedPackage!.data.price
           },
-          schoolId
+          user,
+          selectedPackage!.id
         );
         onSaved(result.student, result.queued);
       }
@@ -120,7 +136,7 @@ export function StudentFormPage({
           <p>
             {isEditing
               ? "Update the student’s basic details and agreed fee."
-              : "Keep the student’s contact and payment details together."}
+              : "Choose the student’s training package and keep their contact and payment details together."}
           </p>
         </div>
       </div>
@@ -180,21 +196,42 @@ export function StudentFormPage({
           />
         </div>
 
-        <div className="flex flex-col gap-1">
-          <label htmlFor="student-tuition" className="text-base font-medium text-slate-900">
-            Total tuition (₦)
-          </label>
-          <input
-            id="student-tuition"
-            type="text"
-            inputMode="decimal"
-            value={form.totalTuition}
-            onChange={(event) => updateField("totalTuition", event.target.value)}
-            placeholder="e.g. 150000"
-            required
-            className="min-h-[48px] rounded-lg border border-slate-300 px-4 text-lg"
-          />
-        </div>
+        {isEditing ? (
+          <div className="flex flex-col gap-1">
+            <span className="text-base font-medium text-slate-900">Agreed tuition</span>
+            <strong>{naira(form.totalTuition)}</strong>
+            <p>The agreed tuition comes from the package selected during registration.</p>
+          </div>
+        ) : (
+          <div className="flex flex-col gap-1">
+            <label htmlFor="student-package" className="text-base font-medium text-slate-900">
+              Training package
+            </label>
+            <select
+              id="student-package"
+              value={form.packageId}
+              onChange={(event) => updateField("packageId", event.target.value)}
+              className="min-h-[48px] rounded-lg border border-slate-300 px-4 text-lg"
+            >
+              <option value="">Choose package</option>
+              {packages.map((entry) => (
+                <option key={entry.id} value={entry.id}>
+                  {entry.data.name} · {entry.data.sessions} lessons · {naira(entry.data.price)}
+                </option>
+              ))}
+            </select>
+            {!training && <p>Open Training and refresh once to load your school’s packages.</p>}
+            {training && !packages.length && (
+              <p>Create a training package before adding students.</p>
+            )}
+            {selectedPackage && (
+              <p>
+                Tuition: {naira(selectedPackage.data.price)} · {selectedPackage.data.sessions}{" "}
+                lessons
+              </p>
+            )}
+          </div>
+        )}
 
         {error ? (
           <p role="alert" className="text-base text-rose-600">

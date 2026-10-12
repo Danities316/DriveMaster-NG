@@ -29,8 +29,8 @@ it("finishes a lesson without requiring hidden purchase fields when no fuel was 
   } as TrainingOuting;
   render(<FinishOutingForm outing={outing} name={() => "Ada"} disabled={false} onSave={save} />);
   fireEvent.change(screen.getByLabelText("Ending mileage (km)"), { target: { value: "110" } });
-  fireEvent.change(screen.getByLabelText("Topics taught — Ada"), {
-    target: { value: "Steering" }
+  fireEvent.change(screen.getByLabelText("What did you teach today?"), {
+    target: { value: "Steering, gears and road positioning" }
   });
   fireEvent.click(screen.getByRole("button", { name: "Continue" }));
   fireEvent.change(screen.getByLabelText("Was fuel bought during this trip?"), {
@@ -49,7 +49,19 @@ it("shows missing document reminders and takes the owner to the settings", () =>
   fireEvent.click(screen.getByText("2 document reminders to check"));
   expect(screen.getAllByText(/Expiry date not entered/)).toHaveLength(2);
   fireEvent.click(screen.getByRole("button", { name: "Update document details" }));
-  expect(onSettings).toHaveBeenCalledOnce();
+  expect(onSettings).toHaveBeenCalledWith("vehicles");
+});
+it("shares a prepared document reminder through WhatsApp without an API", () => {
+  const open = vi.spyOn(window, "open").mockImplementation(() => null);
+  render(<DocumentReminders snapshot={snapshot} />);
+  fireEvent.click(screen.getByText("2 document reminders to check"));
+  fireEvent.click(screen.getAllByRole("button", { name: "Share via WhatsApp" })[0]!);
+  expect(open).toHaveBeenCalledWith(
+    expect.stringMatching(/^https:\/\/wa\.me\/\?text=.*ABC123/),
+    "_blank",
+    "noopener,noreferrer"
+  );
+  open.mockRestore();
 });
 it("queues vehicle expiry dates without changing confirmed records", async () => {
   const save = vi.fn().mockResolvedValue(undefined);

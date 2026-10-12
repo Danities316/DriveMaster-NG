@@ -59,25 +59,21 @@ beforeEach(async () => {
   for (const table of db.tables) await table.clear();
 });
 
-it("reviews group time and fuel before saving and preserves the booking when going back", async () => {
+it("books one student directly and keeps shared lessons optional", async () => {
   const onSave = vi.fn().mockResolvedValue(undefined);
   render(<BookTrainingForm snapshot={snapshot} onSave={onSave} />);
-  for (const student of ["Ada", "Bola", "Chidi"])
-    fireEvent.click(screen.getByLabelText(new RegExp(student)));
+  expect(screen.getByLabelText("Student")).toHaveValue("Ada");
+  fireEvent.click(screen.getByRole("button", { name: "Add another student" }));
+  fireEvent.click(screen.getByLabelText(/Bola/));
+  fireEvent.click(screen.getByLabelText(/Chidi/));
   expect(screen.getByLabelText(/Dayo/)).toBeDisabled();
   fireEvent.click(screen.getByLabelText(/Chidi/));
   expect(screen.getByRole("region", { name: "Booking summary" })).toHaveTextContent("60 minutes");
   expect(screen.getByRole("region", { name: "Booking summary" })).toHaveTextContent("₦3,000.00");
-  change("Instructor", "i");
-  change("Vehicle", "v");
-  change("Date and start time", "2026-09-28T10:00");
-  fireEvent.click(screen.getByRole("button", { name: "Check booking" }));
-  expect(onSave).not.toHaveBeenCalled();
-  expect(screen.getByRole("region", { name: "Booking summary" })).toHaveTextContent("Mr Ade");
-  fireEvent.click(screen.getByRole("button", { name: "Back to edit" }));
+  expect(screen.getByLabelText("Instructor")).toHaveValue("i");
   expect(screen.getByLabelText("Vehicle")).toHaveValue("v");
-  fireEvent.click(screen.getByRole("button", { name: "Check booking" }));
-  fireEvent.click(screen.getByRole("button", { name: "Save booking" }));
+  change("Date and start time", "2026-09-28T10:00");
+  fireEvent.click(screen.getByRole("button", { name: "Confirm booking" }));
   await waitFor(() => expect(onSave).toHaveBeenCalledOnce());
   expect(onSave).toHaveBeenCalledWith({
     studentIds: ["Ada", "Bola"],
@@ -85,6 +81,21 @@ it("reviews group time and fuel before saving and preserves the booking when goi
     vehicleId: "v",
     plannedStart: new Date("2026-09-28T10:00").toISOString()
   });
+});
+it("shows the exact missing booking requirements with setup actions", () => {
+  const onResolveMissing = vi.fn();
+  render(
+    <BookTrainingForm
+      snapshot={{ ...snapshot, instructors: [], vehicles: [], enrollments: [] }}
+      onSave={vi.fn()}
+      onResolveMissing={onResolveMissing}
+    />
+  );
+  expect(screen.getByText("Assign a training package to a registered student.")).toBeVisible();
+  expect(screen.getByText("Add an instructor.")).toBeVisible();
+  expect(screen.getByText("Add a vehicle.")).toBeVisible();
+  fireEvent.click(screen.getByRole("button", { name: "Add instructor" }));
+  expect(onResolveMissing).toHaveBeenCalledWith("instructors");
 });
 it("opens today's lessons and keeps unfinished training from older dates discoverable", async () => {
   const old = {
@@ -117,9 +128,7 @@ it("opens today's lessons and keeps unfinished training from older dates discove
     await screen.findByRole("article", { name: "Training trip for Ada, Bola" })
   ).toBeInTheDocument();
   expect(screen.getByLabelText("Show training")).toHaveValue("today");
-  expect(
-    screen.queryByRole("article", { name: "Training trip for Chidi" })
-  ).toBeInTheDocument();
+  expect(screen.queryByRole("article", { name: "Training trip for Chidi" })).toBeInTheDocument();
   expect(screen.queryByText("Get your school ready, one step at a time")).not.toBeInTheDocument();
   fireEvent.click(screen.getByRole("button", { name: "View training in progress" }));
   expect(screen.getByRole("article", { name: "Training trip for Chidi" })).toBeInTheDocument();

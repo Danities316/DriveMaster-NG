@@ -5,6 +5,7 @@ import {
   type TrainingSnapshot
 } from "@drivemaster/shared";
 import { db } from "../../db/db";
+import { enqueue } from "../../sync/queue";
 import { projectedTraining, queueTraining, sendTraining, trainingSyncEvent } from "./trainingLocal";
 const user: AuthenticatedUser = {
   id: "instructor",
@@ -57,6 +58,32 @@ beforeEach(async () => {
 afterEach(() => {
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
+});
+it("waits for an offline-created student before sending the package enrollment", async () => {
+  const owner = { ...user, role: "OWNER" as const };
+  localStorage.setItem("drivemaster:lastKnownUser", JSON.stringify(owner));
+  await db.trainingCache.put({
+    userId: owner.id,
+    schoolId: owner.schoolId,
+    snapshot: { ...snapshot, viewerRole: owner.role },
+    loadedAt: "2026-10-12"
+  });
+  await enqueue({
+    schoolId: owner.schoolId,
+    entity: "student",
+    action: "CREATE",
+    payload: { id: "new-student" }
+  });
+  await queueTraining(owner, {
+    action: "ENROLL",
+    targetId: "enrollment",
+    data: { studentId: "new-student", packageId: "package" }
+  });
+  const fetcher = vi.fn();
+  vi.stubGlobal("fetch", fetcher);
+  expect(await sendTraining(owner, { force: true })).toMatchObject({ kind: "waiting" });
+  expect(fetcher).not.toHaveBeenCalled();
+  expect(await db.trainingQueue.count()).toBe(1);
 });
 it("keeps owner rule changes offline until accepted without overwriting the cached rules", async () => {
   const owner = { ...user, role: "OWNER" as const };

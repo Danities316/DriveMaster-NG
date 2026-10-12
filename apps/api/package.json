@@ -16,6 +16,9 @@
     "prisma:seed": "tsx prisma/seed.ts",
     "platform-admin:create": "tsx --env-file-if-exists=.env prisma/createPlatformAdmin.ts"
   },
+  "prisma": {
+    "seed": "tsx prisma/seed.ts"
+  },
   "dependencies": {
     "@drivemaster/shared": "*",
     "@prisma/client": "^5.22.0",

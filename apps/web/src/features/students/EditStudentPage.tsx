@@ -1,11 +1,11 @@
 import { useLiveQuery } from "dexie-react-hooks";
-import type { StudentWithBalance } from "@drivemaster/shared";
+import type { AuthenticatedUser, StudentWithBalance } from "@drivemaster/shared";
 import { getLocalStudent } from "./studentLocalStore";
 import { StudentFormPage } from "./StudentFormPage";
 
 interface EditStudentPageProps {
   studentId: string;
-  schoolId: string;
+  user: AuthenticatedUser;
   onSaved: (student: StudentWithBalance, queued: boolean) => void;
   onCancel: () => void;
 }
@@ -17,7 +17,7 @@ interface EditStudentPageProps {
  * because the form itself is presentational — this is where the
  * "which student am I editing" data-fetching concern lives.
  */
-export function EditStudentPage({ studentId, schoolId, onSaved, onCancel }: EditStudentPageProps) {
+export function EditStudentPage({ studentId, user, onSaved, onCancel }: EditStudentPageProps) {
   const student = useLiveQuery(() => getLocalStudent(studentId), [studentId]);
 
   if (student === undefined) {
@@ -36,11 +36,6 @@ export function EditStudentPage({ studentId, schoolId, onSaved, onCancel }: Edit
   }
 
   return (
-    <StudentFormPage
-      schoolId={schoolId}
-      existingStudent={student}
-      onSaved={onSaved}
-      onCancel={onCancel}
-    />
+    <StudentFormPage user={user} existingStudent={student} onSaved={onSaved} onCancel={onCancel} />
   );
 }

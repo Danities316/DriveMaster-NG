@@ -9,6 +9,7 @@ import {
   INTAKE_FIELDS,
   isValidDate,
   lagosDay,
+  normalizeMoney,
   sumMoney,
   validInstructorNin,
   type ApplicantDetails,
@@ -25,14 +26,32 @@ const fail = (message: string, status = 400): never => {
 };
 const json = (value: unknown) => JSON.parse(JSON.stringify(value)) as Prisma.InputJsonValue;
 const fieldNames = INTAKE_FIELDS.map(([key]) => key) as [string, ...string[]];
-export const enrollmentSettingsInput = z.object({
-  enabled: z.boolean(),
-  welcome: z.string().trim().max(1000),
-  packageIds: z.array(z.string().min(1).max(100)).max(100),
-  requiredFields: z.array(z.enum(fieldNames)).max(fieldNames.length),
-  allowUnpaidStart: z.boolean(),
-  reason: z.string().trim().min(1).max(500)
-});
+export const enrollmentSettingsInput = z
+  .object({
+    enabled: z.boolean(),
+    welcome: z.string().trim().max(1000),
+    packageIds: z.array(z.string().min(1).max(100)).max(100),
+    requiredFields: z.array(z.enum(fieldNames)).max(fieldNames.length),
+    allowUnpaidStart: z.boolean(),
+    showBankTransfer: z.boolean(),
+    bankName: z.string().trim().max(100),
+    accountNumber: z
+      .string()
+      .trim()
+      .regex(/^$|^\d{10}$/, "Enter a 10-digit account number."),
+    accountName: z.string().trim().max(150),
+    paymentInstructions: z.string().trim().max(500),
+    allowReceiptUpload: z.boolean(),
+    reason: z.string().trim().min(1).max(500)
+  })
+  .superRefine((value, context) => {
+    if (value.showBankTransfer && (!value.bankName || !value.accountNumber || !value.accountName))
+      context.addIssue({
+        code: "custom",
+        message:
+          "Enter the bank name, 10-digit account number and account name before showing payment details."
+      });
+  });
 export function parseApplicant(value: unknown): ApplicantDetails {
   const raw = z.record(z.string().trim().max(500)).parse(value);
   const data = Object.fromEntries(
@@ -129,7 +148,16 @@ export function createPublicEnrollmentRouter() {
       const rules = rows.find((r) => r.kind === "school_rules");
       res.json({
         school,
-        settings: { welcome: settings!.welcome, requiredFields: settings!.requiredFields },
+        settings: {
+          welcome: settings!.welcome,
+          requiredFields: settings!.requiredFields,
+          showBankTransfer: settings!.showBankTransfer ?? false,
+          bankName: settings!.bankName ?? "",
+          accountNumber: settings!.accountNumber ?? "",
+          accountName: settings!.accountName ?? "",
+          paymentInstructions: settings!.paymentInstructions ?? "",
+          allowReceiptUpload: settings!.allowReceiptUpload ?? false
+        },
         settingsVersion: settingsRow!.version,
         rulesVersion: rules?.version ?? -1,
         schoolTargetDays:
@@ -222,6 +250,100 @@ export function createPublicEnrollmentRouter() {
       next(routeError(error));
     }
   });
+  router.post("/:schoolId/:applicationId/payment-claims", async (req, res, next) => {
+    try {
+      const schoolId = z.string().max(100).parse(req.params["schoolId"]);
+      const applicationId = z.string().uuid().parse(req.params["applicationId"]);
+      const input = z
+        .object({
+          id: z.string().uuid(),
+          amount: z
+            .string()
+            .trim()
+            .regex(/^\d{1,10}(?:\.\d{1,2})?$/),
+          transferDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+          senderName: z.string().trim().min(2).max(150),
+          reference: z.string().trim().max(100).optional(),
+          receiptDataUrl: z.string().max(2_800_000).optional()
+        })
+        .parse(req.body);
+      const amount = normalizeMoney(input.amount);
+      if (Number(amount) <= 0) fail("Enter the amount you transferred.");
+      if (
+        !isValidDate(input.transferDate) ||
+        input.transferDate > lagosDay(new Date().toISOString())
+      )
+        fail("Choose the date you made the transfer.");
+      let receipt: Buffer | undefined, receiptMime: string | undefined;
+      if (input.receiptDataUrl) {
+        const match = /^data:(image\/(?:jpeg|png|webp));base64,([A-Za-z0-9+/=]+)$/.exec(
+          input.receiptDataUrl
+        );
+        if (!match) fail("Upload a JPG, PNG or WebP payment receipt.");
+        receipt = Buffer.from(match![2]!, "base64");
+        receiptMime = match![1]!;
+        if (!receipt.length || receipt.length > 2_000_000)
+          fail("The receipt image must be smaller than 2 MB.");
+        const validImage =
+          (receiptMime === "image/jpeg" &&
+            receipt[0] === 0xff &&
+            receipt[1] === 0xd8 &&
+            receipt[2] === 0xff) ||
+          (receiptMime === "image/png" &&
+            receipt.subarray(0, 4).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47]))) ||
+          (receiptMime === "image/webp" &&
+            receipt.subarray(0, 4).toString("ascii") === "RIFF" &&
+            receipt.subarray(8, 12).toString("ascii") === "WEBP");
+        if (!validImage) fail("The receipt file is not a valid JPG, PNG or WebP image.");
+      }
+      const hash = createHash("sha256")
+        .update(JSON.stringify({ schoolId, applicationId, ...input }))
+        .digest("hex");
+      await getPrismaClient().$transaction(async (tx) => {
+        await tx.$queryRaw`SELECT id FROM schools WHERE id = ${schoolId} FOR UPDATE`;
+        const previous = await tx.paymentClaim.findUnique({ where: { id: input.id } });
+        if (previous) {
+          if (
+            previous.schoolId !== schoolId ||
+            previous.applicationId !== applicationId ||
+            previous.requestHash !== hash
+          )
+            fail("This payment report reference was already used.", 409);
+          return;
+        }
+        const application = await tx.enrollmentApplication.findFirst({
+          where: { id: applicationId, schoolId }
+        });
+        if (!application || application.status === "REJECTED")
+          fail("This registration is not available.", 404);
+        const config = await tx.trainingRecord.findFirst({
+          where: { schoolId, kind: "enrollment_settings" }
+        });
+        const settings = config?.data as unknown as EnrollmentSettings | undefined;
+        if (!settings?.enabled || !settings.showBankTransfer)
+          fail("Online bank-transfer reporting is not open. Contact the school.", 409);
+        if (receipt && !settings!.allowReceiptUpload)
+          fail("This school is not accepting receipt images.", 409);
+        await tx.paymentClaim.create({
+          data: {
+            id: input.id,
+            schoolId,
+            applicationId,
+            amount,
+            transferDate: new Date(`${input.transferDate}T12:00:00.000Z`),
+            senderName: input.senderName,
+            reference: input.reference || null,
+            requestHash: hash,
+            receipt,
+            receiptMime
+          }
+        });
+      });
+      res.status(201).json({ received: true, reference: input.id });
+    } catch (error) {
+      next(routeError(error));
+    }
+  });
   return router;
 }
 
@@ -259,6 +381,23 @@ export function createEnrollmentReviewRouter() {
           studentId: { in: rows.flatMap((r) => (r.studentId ? [r.studentId] : [])) }
         }
       });
+      const claims = await getPrismaClient().paymentClaim.findMany({
+        where: { schoolId: req.auth!.schoolId, applicationId: { in: rows.map((row) => row.id) } },
+        orderBy: [{ createdAt: "desc" }, { id: "asc" }],
+        select: {
+          id: true,
+          applicationId: true,
+          amount: true,
+          transferDate: true,
+          senderName: true,
+          reference: true,
+          status: true,
+          receipt: true,
+          createdAt: true,
+          reviewedAt: true,
+          reviewNote: true
+        }
+      });
       res.json({
         hasMore: found.length > 100,
         applications: rows.map(({ requestHash: _hash, details, ...row }) => ({
@@ -266,7 +405,15 @@ export function createEnrollmentReviewRouter() {
           ...(req.auth!.role === "OWNER" ? { details } : {}),
           paid: sumMoney(
             payments.filter((p) => p.studentId === row.studentId).map((p) => p.amount.toFixed(2))
-          )
+          ),
+          paymentClaims: claims
+            .filter((claim) => claim.applicationId === row.id)
+            .map((claim) => ({
+              ...claim,
+              amount: claim.amount.toFixed(2),
+              hasReceipt: !!claim.receipt,
+              receipt: undefined
+            }))
         }))
       });
     } catch (error) {
@@ -418,6 +565,86 @@ export function createEnrollmentReviewRouter() {
               previousVersion: row!.version,
               studentId,
               status
+            }
+          }
+        });
+      });
+      res.json({ success: true });
+    } catch (error) {
+      next(routeError(error));
+    }
+  });
+  router.get("/payment-claims/:claimId/receipt", async (req, res, next) => {
+    try {
+      const claim = await getPrismaClient().paymentClaim.findFirst({
+        where: { id: String(req.params["claimId"]), schoolId: req.auth!.schoolId },
+        select: { receipt: true, receiptMime: true }
+      });
+      if (!claim?.receipt || !claim.receiptMime) fail("Receipt image not found.", 404);
+      res.type(claim!.receiptMime!).send(claim!.receipt);
+    } catch (error) {
+      next(routeError(error));
+    }
+  });
+  router.post("/payment-claims/:claimId", async (req, res, next) => {
+    try {
+      const input = z
+        .object({ action: z.enum(["CONFIRM", "REJECT"]), note: z.string().trim().min(1).max(500) })
+        .parse(req.body);
+      const schoolId = req.auth!.schoolId,
+        claimId = z.string().uuid().parse(req.params["claimId"]);
+      await getPrismaClient().$transaction(async (tx) => {
+        await tx.$queryRaw`SELECT id FROM schools WHERE id = ${schoolId} FOR UPDATE`;
+        const actor = await tx.user.findFirst({
+          where: {
+            id: req.auth!.userId,
+            schoolId,
+            isActive: true,
+            role: { in: ["OWNER", "RECEPTIONIST"] }
+          }
+        });
+        if (!actor) fail("Sign in as office staff.", 403);
+        const claim = await tx.paymentClaim.findFirst({
+          where: { id: claimId, schoolId },
+          include: { application: true }
+        });
+        if (!claim) fail("Payment report not found.", 404);
+        if (claim!.status !== "WAITING") fail("This payment report has already been checked.", 409);
+        if (input.action === "CONFIRM") {
+          if (!claim!.application.studentId)
+            fail("Create the student record before confirming this payment.", 409);
+          await tx.payment.create({
+            data: {
+              id: claim!.id,
+              schoolId,
+              studentId: claim!.application.studentId!,
+              amount: claim!.amount,
+              paymentDate: claim!.transferDate,
+              method: "BANK_TRANSFER",
+              reference: claim!.reference || `Online transfer ${claim!.id.slice(0, 8)}`
+            }
+          });
+        }
+        await tx.paymentClaim.update({
+          where: { id: claim!.id },
+          data: {
+            status: input.action === "CONFIRM" ? "CONFIRMED" : "REJECTED",
+            reviewNote: input.note,
+            reviewedAt: new Date(),
+            reviewedById: actor!.id
+          }
+        });
+        await tx.auditLog.create({
+          data: {
+            schoolId,
+            userId: actor!.id,
+            action: input.action,
+            entity: "payment_claim",
+            entityId: claim!.id,
+            metadata: {
+              applicationId: claim!.applicationId,
+              amount: claim!.amount.toFixed(2),
+              note: input.note
             }
           }
         });

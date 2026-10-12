@@ -1,4 +1,5 @@
 import type {
+  AuthenticatedUser,
   StudentWithBalance,
   CreateStudentRequest,
   UpdateStudentRequest
@@ -7,6 +8,7 @@ import { subtractMoney, isValidStoredMoney, isValidDate } from "@drivemaster/sha
 import { db } from "../../db/db";
 import { enqueue, requestSync } from "../../sync/queue";
 import { StudentApiError } from "./studentApi";
+import { requestTrainingSync, type QueuedTraining } from "../training/trainingLocal";
 
 export interface CreateStudentResult {
   student: StudentWithBalance;
@@ -39,6 +41,72 @@ export async function createStudentOffline(
     });
   });
   requestSync();
+  return { student, queued: true };
+}
+
+export async function createStudentWithPackageOffline(
+  input: Omit<CreateStudentRequest, "id">,
+  user: AuthenticatedUser,
+  packageId: string
+): Promise<CreateStudentResult> {
+  validateStudent(input);
+  const cached = await db.trainingCache.get(user.id);
+  if (
+    !cached ||
+    cached.schoolId !== user.schoolId ||
+    cached.snapshot.viewerRole !== user.role ||
+    cached.snapshot.userId !== user.id
+  )
+    throw new StudentApiError("Refresh Training before registering a student.", 409);
+  const trainingPackage = cached.snapshot.packages.find((entry) => entry.id === packageId);
+  if (!trainingPackage) throw new StudentApiError("Choose a saved training package.", 400);
+
+  const now = new Date().toISOString();
+  const student: StudentWithBalance = {
+    ...input,
+    totalTuition: trainingPackage.data.price,
+    id: crypto.randomUUID(),
+    schoolId: user.schoolId,
+    licenseNumber: input.licenseNumber ?? null,
+    amountPaid: "0.00",
+    balanceRemaining: trainingPackage.data.price,
+    createdAt: now,
+    updatedAt: now
+  };
+  const enrollment: QueuedTraining = {
+    id: crypto.randomUUID(),
+    action: "ENROLL",
+    targetId: crypto.randomUUID(),
+    data: {
+      studentId: student.id,
+      packageId: trainingPackage.id,
+      packageVersion: trainingPackage.version,
+      studentVersion: 0,
+      rulesVersion: cached.snapshot.schoolRules?.version ?? -1,
+      studentName: student.name,
+      totalTuition: trainingPackage.data.price
+    },
+    userId: user.id,
+    schoolId: user.schoolId,
+    role: user.role,
+    createdAt: Date.now(),
+    status: "PENDING",
+    attempts: 0,
+    nextAttemptAt: 0
+  };
+
+  await db.transaction("rw", db.students, db.outbox, db.trainingQueue, async () => {
+    await db.students.add(student);
+    await enqueue({
+      schoolId: user.schoolId,
+      entity: "student",
+      action: "CREATE",
+      payload: { ...input, totalTuition: trainingPackage.data.price, id: student.id }
+    });
+    await db.trainingQueue.add(enrollment);
+  });
+  requestSync();
+  requestTrainingSync();
   return { student, queued: true };
 }
 export async function updateStudentOffline(

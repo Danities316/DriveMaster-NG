@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { fetchCurrentUser, getCachedUser, logout } from "./auth";
+import { fetchCurrentUser, getCachedUser, login, logout } from "./auth";
 import { prepareLocalSchool } from "./localSession";
 import { db } from "../db/db";
 
@@ -27,6 +27,20 @@ describe("session reconciliation", () => {
     await logout();
     expect(getCachedUser()).toBeNull();
     expect(await fetchCurrentUser()).toEqual({ user: null, source: "network" });
+  });
+  it("removes another account's cached identity when a new sign-in fails", async () => {
+    localStorage.setItem("drivemaster:lastKnownUser", JSON.stringify(user));
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: false,
+        json: async () => ({ error: { message: "Phone number or password is incorrect." } })
+      })
+    );
+    await expect(login("08000000000", "wrong-password")).rejects.toThrow(
+      "Phone number or password is incorrect."
+    );
+    expect(getCachedUser()).toBeNull();
   });
   it("blocks school switching while unsent work exists, then clears old data after acknowledgement", async () => {
     await prepareLocalSchool(user);

@@ -377,6 +377,126 @@
   font-size: 11px !important;
   text-align: center;
 }
+.enroll-payment-card {
+  width: 100%;
+  margin-top: 22px;
+  padding: clamp(18px, 4vw, 28px);
+  border: 1px solid #cfd8ff;
+  border-radius: 20px;
+  background: #f7f9ff;
+  text-align: left;
+}
+.enroll-payment-card h3 {
+  margin: 5px 0 8px;
+  color: #11174f;
+}
+.enroll-payment-card dl {
+  display: grid;
+  gap: 10px;
+  margin: 18px 0;
+}
+.enroll-payment-card dl div {
+  display: flex;
+  justify-content: space-between;
+  gap: 20px;
+  padding-bottom: 9px;
+  border-bottom: 1px solid #dde3fa;
+}
+.enroll-payment-card dt {
+  color: #656b8c;
+  font-size: 13px;
+}
+.enroll-payment-card dd {
+  margin: 0;
+  color: #11174f;
+  font-weight: 750;
+  text-align: right;
+}
+.enroll-account-number dd {
+  color: #0000ff;
+  font-size: 22px;
+  letter-spacing: 1.5px;
+}
+.enroll-payment-card details {
+  margin-top: 18px;
+  border-top: 1px solid #dce2f8;
+  padding-top: 16px;
+}
+.enroll-payment-card summary {
+  cursor: pointer;
+  color: #0000cc;
+  font-weight: 750;
+}
+.enroll-payment-note {
+  margin-top: 12px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: #fff;
+  color: #383f68;
+}
+.enroll-payment-form {
+  margin-top: 18px;
+}
+.enroll-payment-form > label {
+  display: grid;
+  gap: 7px;
+  color: #171b4f;
+  font-weight: 650;
+}
+.enroll-payment-form label small {
+  color: #717795;
+  font-weight: 500;
+}
+.enroll-payment-waiting {
+  display: flex;
+  gap: 12px;
+  width: 100%;
+  margin-top: 20px;
+  padding: 18px;
+  border: 1px solid #a9dfc0;
+  border-radius: 16px;
+  background: #effbf4;
+  color: #155d35;
+  text-align: left;
+}
+.enroll-payment-waiting p {
+  margin: 4px 0 0;
+}
+.enrollment-payment-settings {
+  display: grid;
+  gap: 14px;
+}
+.payment-claim-list {
+  display: grid;
+  gap: 12px;
+  margin: 18px 0;
+}
+.payment-claim {
+  padding: 16px;
+  border: 1px solid #d8dcf0;
+  border-radius: 14px;
+  background: #f8f9ff;
+}
+.payment-claim > div:first-child {
+  display: grid;
+  gap: 3px;
+}
+.payment-claim > div:first-child strong {
+  color: #10165a;
+  font-size: 20px;
+}
+.payment-claim > div:first-child span,
+.payment-claim > div:first-child small {
+  color: #5e6484;
+}
+.payment-claim.confirmed {
+  border-color: #a9dfc0;
+  background: #f2fbf5;
+}
+.payment-claim.rejected {
+  border-color: #efc2c2;
+  background: #fff7f7;
+}
 .enroll-loading {
   display: grid;
   min-height: 430px;
@@ -755,6 +875,18 @@
   min-height: 48px;
 }
 @media (max-width: 600px) {
+  .enroll-payment-card dl div {
+    display: grid;
+    gap: 3px;
+  }
+  .enroll-payment-card dd {
+    text-align: left;
+  }
+  .enroll-payment-card .dm-secondary,
+  .enroll-payment-form .dm-primary {
+    width: 100%;
+    justify-content: center;
+  }
   .trip-actions {
     flex-direction: column;
   }
@@ -1080,6 +1212,78 @@
   border-radius: 10px;
   background: #f8fafc;
 }
+.lesson-topic-card {
+  display: grid;
+  gap: 10px;
+  padding: 18px;
+  border: 2px solid #c7d2fe;
+  border-radius: 14px;
+  background: linear-gradient(135deg, #f7f8ff, #ffffff);
+}
+.lesson-topic-card label {
+  display: grid;
+  gap: 8px;
+  color: #15195b;
+  font-weight: 750;
+}
+.lesson-topic-card p {
+  margin: 0;
+  color: #555b7d;
+  font-size: 0.9rem;
+}
+.lesson-student-changes {
+  border: 1px solid #d9ddeb;
+  border-radius: 12px;
+  padding: 0 16px 16px;
+  background: #fff;
+}
+.lesson-student-changes > summary {
+  color: #292f72;
+  font-weight: 700;
+}
+.lesson-student-changes > p {
+  color: #606683;
+}
+.curriculum-topic-list {
+  display: grid;
+  gap: 12px;
+}
+.curriculum-topic-row {
+  display: grid;
+  grid-template-columns: minmax(240px, 1fr) auto auto;
+  align-items: end;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid #d9ddef;
+  border-radius: 12px;
+  background: #fafaff;
+}
+.curriculum-topic-row > label:first-child {
+  display: grid;
+  gap: 7px;
+  font-weight: 650;
+}
+.curriculum-visible {
+  margin: 0;
+  white-space: nowrap;
+}
+.curriculum-topic-actions {
+  display: flex;
+  gap: 7px;
+}
+.curriculum-topic-actions button {
+  width: 44px;
+  min-width: 44px;
+  min-height: 44px;
+  padding: 0;
+  justify-content: center;
+}
+.curriculum-remove {
+  color: #9f1239;
+}
+.curriculum-add {
+  justify-self: start;
+}
 .lesson-workflow .workflow-total {
   padding: 16px;
   background: #f0f0ff;
@@ -1108,6 +1312,17 @@
   display: block;
 }
 @media (max-width: 600px) {
+  .curriculum-topic-row {
+    grid-template-columns: 1fr;
+    align-items: stretch;
+  }
+  .curriculum-topic-actions {
+    justify-content: flex-start;
+  }
+  .curriculum-add {
+    width: 100%;
+    justify-content: center;
+  }
   .lesson-workflow > button,
   .lesson-workflow .workflow-actions button {
     width: 100%;
@@ -1126,6 +1341,103 @@
   text-align: left;
   border-bottom: 1px solid #dbe3ef;
   min-width: 120px;
+}
+
+.student-training-report {
+  gap: 1rem;
+}
+.student-report-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+}
+.student-report-heading h3 {
+  margin: 0.15rem 0;
+  font-size: 1.15rem;
+}
+.student-report-heading p {
+  margin: 0;
+  color: #475569;
+}
+.student-report-money {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.75rem;
+}
+.student-report-money div {
+  border-radius: 0.65rem;
+  background: #f8fafc;
+  padding: 0.75rem;
+}
+.student-report-money dt {
+  color: #64748b;
+  font-size: 0.85rem;
+}
+.student-report-money dd {
+  margin: 0.2rem 0 0;
+  font-weight: 700;
+}
+.student-report-lessons summary {
+  min-height: 48px;
+  cursor: pointer;
+  padding: 0.75rem 0;
+  font-weight: 600;
+}
+.student-report-lessons ol {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.student-report-lessons li {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  border-top: 1px solid #e2e8f0;
+  padding: 0.75rem 0;
+}
+.student-report-lessons li div {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+.student-report-lessons li div:last-child {
+  align-items: flex-end;
+  text-align: right;
+}
+.student-report-lessons span,
+.student-report-lessons small {
+  color: #64748b;
+}
+@media (max-width: 640px) {
+  .student-report-heading {
+    flex-direction: column;
+  }
+  .report-print-button {
+    width: 100%;
+  }
+  .student-report-money {
+    grid-template-columns: 1fr;
+  }
+  .student-report-lessons li {
+    flex-direction: column;
+  }
+  .student-report-lessons li div:last-child {
+    align-items: flex-start;
+    text-align: left;
+  }
+}
+@media print {
+  .report-print-button {
+    display: none;
+  }
+  .student-training-report {
+    border: 0;
+    box-shadow: none;
+  }
 }
 .document-reminders {
   width: 100%;

@@ -1,5 +1,14 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
-import { ArrowRight, Check, CheckCircle2, Clock3, Phone, Route, ShieldCheck } from "lucide-react";
+import {
+  ArrowRight,
+  Check,
+  CheckCircle2,
+  Clock3,
+  Copy,
+  Phone,
+  Route,
+  ShieldCheck
+} from "lucide-react";
 import { INTAKE_FIELDS, type PublicEnrollmentInfo } from "@drivemaster/shared";
 import { ApplicantFields } from "./ApplicantFields";
 import { applicantSteps, emptyApplicant } from "./applicantForm";
@@ -34,8 +43,13 @@ export function PublicEnrollmentPage({ schoolId }: { schoolId: string }) {
   const [error, setError] = useState("");
   const [consent, setConsent] = useState(false);
   const [received, setReceived] = useState(false);
+  const [paymentSent, setPaymentSent] = useState(false);
+  const [paymentBusy, setPaymentBusy] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const [receiptDataUrl, setReceiptDataUrl] = useState("");
   const [website, setWebsite] = useState("");
   const requestId = useRef(registrationId());
+  const paymentRequestId = useRef(registrationId());
   const loadNumber = useRef(0);
   const base = import.meta.env["VITE_API_BASE_URL"] ?? "/api";
 
@@ -109,6 +123,39 @@ export function PublicEnrollmentPage({ schoolId }: { schoolId: string }) {
       setBusy(false);
     }
   }
+  async function reportPayment(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (paymentBusy || !info) return;
+    const form = new FormData(event.currentTarget);
+    setPaymentBusy(true);
+    setError("");
+    try {
+      const response = await fetch(
+        `${base}/enroll/${encodeURIComponent(schoolId)}/${requestId.current}/payment-claims`,
+        {
+          method: "POST",
+          credentials: "omit",
+          headers: { "Content-Type": "application/json" },
+          signal: AbortSignal.timeout(20000),
+          body: JSON.stringify({
+            id: paymentRequestId.current,
+            amount: String(form.get("amount") ?? ""),
+            transferDate: String(form.get("transferDate") ?? ""),
+            senderName: String(form.get("senderName") ?? ""),
+            reference: String(form.get("reference") ?? ""),
+            receiptDataUrl: receiptDataUrl || undefined
+          })
+        }
+      );
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error?.message ?? "Unable to report payment.");
+      setPaymentSent(true);
+    } catch (cause) {
+      setError(friendlyError(cause, true));
+    } finally {
+      setPaymentBusy(false);
+    }
+  }
 
   return (
     <main className="enroll-page training-page">
@@ -164,8 +211,8 @@ export function PublicEnrollmentPage({ schoolId }: { schoolId: string }) {
           <div className="enroll-no-payment">
             <CheckCircle2 size={20} />
             <span>
-              <strong>No payment on this page</strong>
-              <small>The school will contact you about payment and your first lesson.</small>
+              <strong>Pay only after you register</strong>
+              <small>You will see the school’s account details after submitting.</small>
             </span>
           </div>
           {info?.school.phone && (
@@ -190,10 +237,7 @@ export function PublicEnrollmentPage({ schoolId }: { schoolId: string }) {
               </span>
               <p className="dm-eyebrow">REGISTRATION RECEIVED</p>
               <h2>Your details have been received</h2>
-              <p>
-                The school will review your details, arrange payment and help you book your first
-                lesson.
-              </p>
+              <p>The school will review your details and help you book your first lesson.</p>
               <div className="enroll-reference">
                 <small>Your reference</small>
                 <strong>{requestId.current}</strong>
@@ -202,6 +246,119 @@ export function PublicEnrollmentPage({ schoolId }: { schoolId: string }) {
                 Keep this reference. This is not a payment receipt or a driver’s licence
                 application.
               </p>
+              {info?.settings.showBankTransfer && !paymentSent && (
+                <section className="enroll-payment-card">
+                  <p className="dm-eyebrow">PAY DIRECTLY TO THE SCHOOL</p>
+                  <h3>Make your bank transfer</h3>
+                  <p>
+                    Transfer to the account below. Your payment will be added only after the school
+                    confirms that the money entered its account.
+                  </p>
+                  <dl>
+                    <div>
+                      <dt>Bank</dt>
+                      <dd>{info.settings.bankName}</dd>
+                    </div>
+                    <div>
+                      <dt>Account name</dt>
+                      <dd>{info.settings.accountName}</dd>
+                    </div>
+                    <div className="enroll-account-number">
+                      <dt>Account number</dt>
+                      <dd>{info.settings.accountNumber}</dd>
+                    </div>
+                  </dl>
+                  <button
+                    type="button"
+                    className="dm-secondary"
+                    onClick={() =>
+                      void navigator.clipboard
+                        .writeText(info.settings.accountNumber)
+                        .then(() => setCopied(true))
+                    }
+                  >
+                    <Copy size={16} /> {copied ? "Account number copied" : "Copy account number"}
+                  </button>
+                  {info.settings.paymentInstructions && (
+                    <p className="enroll-payment-note">{info.settings.paymentInstructions}</p>
+                  )}
+                  <details>
+                    <summary>I have made payment</summary>
+                    <form
+                      className="training-form enroll-payment-form"
+                      onSubmit={(event) => void reportPayment(event)}
+                    >
+                      <label>
+                        Amount transferred (₦)
+                        <input name="amount" type="number" min="1" step="0.01" required />
+                      </label>
+                      <label>
+                        Transfer date
+                        <input
+                          name="transferDate"
+                          type="date"
+                          max={new Date().toISOString().slice(0, 10)}
+                          required
+                        />
+                      </label>
+                      <label>
+                        Name on the sender’s account
+                        <input name="senderName" maxLength={150} required />
+                      </label>
+                      <label>
+                        Bank reference <small>Optional</small>
+                        <input name="reference" maxLength={100} />
+                      </label>
+                      {info.settings.allowReceiptUpload && (
+                        <label>
+                          Receipt screenshot{" "}
+                          <small>Optional — JPG, PNG or WebP, maximum 2 MB</small>
+                          <input
+                            type="file"
+                            accept="image/jpeg,image/png,image/webp"
+                            onChange={(event) => {
+                              const file = event.target.files?.[0];
+                              setError("");
+                              if (!file) return setReceiptDataUrl("");
+                              if (file.size > 2_000_000) {
+                                event.target.value = "";
+                                setError("The receipt image must be smaller than 2 MB.");
+                                return;
+                              }
+                              const reader = new FileReader();
+                              reader.onload = () => setReceiptDataUrl(String(reader.result ?? ""));
+                              reader.readAsDataURL(file);
+                            }}
+                          />
+                        </label>
+                      )}
+                      {error && (
+                        <p role="alert" className="enroll-error">
+                          {error}
+                        </p>
+                      )}
+                      <button className="dm-primary" disabled={paymentBusy}>
+                        {paymentBusy ? "Sending…" : "Send payment details"}
+                      </button>
+                      <small>
+                        This reports your transfer. It does not confirm payment automatically.
+                      </small>
+                    </form>
+                  </details>
+                </section>
+              )}
+              {paymentSent && (
+                <div className="enroll-payment-waiting">
+                  <CheckCircle2 size={22} />
+                  <div>
+                    <strong>Payment details sent</strong>
+                    <p>
+                      The school will check its bank account. Your payment is waiting for
+                      confirmation.
+                    </p>
+                  </div>
+                </div>
+              )}
               {info?.school.phone && (
                 <a className="dm-primary" href={`tel:${info.school.phone}`}>
                   <Phone size={17} />

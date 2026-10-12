@@ -15,6 +15,9 @@ export interface QueuedTraining extends TrainingCommand {
 }
 const base = import.meta.env["VITE_API_BASE_URL"] ?? "/api";
 const wake = "drivemaster:training-send";
+export function requestTrainingSync(): void {
+  window.dispatchEvent(new Event(wake));
+}
 export const trainingSyncEvent = "drivemaster:training-status";
 export interface TrainingSendResult {
   kind: "sent" | "waiting" | "blocked" | "busy" | "offline" | "account" | "superseded";
@@ -79,6 +82,23 @@ export async function trainingRequest(path: string, data?: unknown) {
     );
   return result;
 }
+export async function openTrainingFile(path: string) {
+  const response = await fetch(`${base}/training/${path}`, {
+    credentials: "include",
+    headers: {
+      "X-Training-User": getCachedUser()?.id ?? "",
+      "X-Training-School": getCachedUser()?.schoolId ?? ""
+    },
+    signal: AbortSignal.timeout(20000)
+  });
+  if (!response.ok) {
+    const result = await response.json().catch(() => null);
+    throw new Error(result?.error?.message ?? "Unable to open this file.");
+  }
+  const url = URL.createObjectURL(await response.blob());
+  window.open(url, "_blank", "noopener,noreferrer");
+  window.setTimeout(() => URL.revokeObjectURL(url), 60000);
+}
 export async function queueTraining(user: AuthenticatedUser, command: Omit<TrainingCommand, "id">) {
   await db.transaction("rw", db.trainingQueue, db.trainingCache, async () => {
     const cached = await db.trainingCache.get(user.id);
@@ -120,7 +140,7 @@ export async function queueTraining(user: AuthenticatedUser, command: Omit<Train
       nextAttemptAt: 0
     });
   });
-  window.dispatchEvent(new Event(wake));
+  requestTrainingSync();
 }
 export function projectedTraining(
   snapshot: TrainingSnapshot,
@@ -128,7 +148,40 @@ export function projectedTraining(
 ): TrainingSnapshot {
   const result = structuredClone(snapshot);
   for (const change of [...queue].sort((a, b) => a.createdAt - b.createdAt)) {
-    if (change.status !== "PENDING" || change.action !== "START") continue;
+    if (change.status !== "PENDING") continue;
+    if (change.action === "ENROLL") {
+      const input = change.data as {
+        studentId: string;
+        studentName?: string;
+        packageId: string;
+        packageVersion: number;
+        studentVersion: number;
+        totalTuition?: string;
+      };
+      const trainingPackage = result.packages.find((entry) => entry.id === input.packageId);
+      if (
+        trainingPackage &&
+        !result.enrollments.some((entry) => entry.data.studentId === input.studentId)
+      )
+        result.enrollments.push({
+          id: change.targetId,
+          version: 0,
+          data: {
+            ...trainingPackage.data,
+            studentId: input.studentId,
+            packageId: input.packageId
+          }
+        });
+      if (!result.students.some((student) => student.id === input.studentId))
+        result.students.push({
+          id: input.studentId,
+          name: input.studentName ?? "New student",
+          totalTuition: input.totalTuition ?? trainingPackage?.data.price ?? "0.00",
+          version: 0
+        });
+      continue;
+    }
+    if (change.action !== "START") continue;
     const outing = result.outings.find((o) => o.id === change.targetId);
     if (!outing || outing.data.status !== "BOOKED") continue;
     const input = change.data as { startedAt: string; odometer: number; present: string[] };
@@ -211,6 +264,21 @@ async function performTrainingSend(
           kind: "account",
           message: "The signed-in account changed. Your unsent records have been kept."
         };
+      if (entry.action === "ENROLL") {
+        const studentId = (entry.data as { studentId?: string }).studentId;
+        const studentCreatePending = (await db.outbox.toArray()).some(
+          (mutation) =>
+            mutation.schoolId === user.schoolId &&
+            mutation.entity === "student" &&
+            mutation.action === "CREATE" &&
+            (mutation.payload as { id?: string } | null)?.id === studentId
+        );
+        if (studentCreatePending)
+          return {
+            kind: "waiting",
+            message: "The student record will be sent before the training package."
+          };
+      }
       if (
         entry.schoolId !== user.schoolId ||
         entry.role !== user.role ||
@@ -337,5 +405,5 @@ export async function discardTraining(user: AuthenticatedUser, id: string) {
     );
     await db.trainingQueue.bulkDelete(dependents.map((q) => q.id));
   });
-  window.dispatchEvent(new Event(wake));
+  requestTrainingSync();
 }

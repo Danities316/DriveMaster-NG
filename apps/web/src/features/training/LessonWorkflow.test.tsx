@@ -48,8 +48,9 @@ it("puts attendance first, allows deselection and requires a valid starting mile
 function drivingDetails() {
   change("Actual finish time", local(new Date(+start + 3600000)));
   change("Ending mileage (km)", "125462");
-  change("Topics taught — Emeka", "Braking");
-  change("Topics taught — Grace", "Turning");
+  change("What did you teach today?", "Real-road driving practice");
+  change("Different topic (optional) — Emeka", "Braking");
+  change("Different topic (optional) — Grace", "Turning");
 }
 const example = { ...outing, startOdometer: 125430 };
 const exampleName = (id: string) => (id === "a" ? "Emeka" : "Grace");
@@ -60,7 +61,7 @@ it("records the Emeka and Grace example with 32 km, separate lessons and 600 to 
   drivingDetails();
   expect(screen.getByRole("status")).toHaveTextContent("Distance driven: 32 km");
   expect(screen.getByLabelText("Notes (optional) — Emeka")).not.toBeRequired();
-  expect(screen.getByLabelText("Topics taught — Grace")).toBeRequired();
+  expect(screen.getByLabelText("Different topic (optional) — Grace")).not.toBeRequired();
   fireEvent.click(screen.getByRole("button", { name: "Continue" }));
   change("Amount spent (₦)", "2400");
   expect(screen.getByRole("status")).toHaveTextContent("Money to return₦600.00");
@@ -84,6 +85,40 @@ it("records the Emeka and Grace example with 32 km, separate lessons and 600 to 
       lessons: [
         { studentId: "a", minutes: 30, topics: "Braking", note: "" },
         { studentId: "b", minutes: 30, topics: "Turning", note: "" }
+      ]
+    })
+  );
+});
+it("finishes the common group lesson with one topic and the prefilled 30 minutes", async () => {
+  const save = vi.fn().mockResolvedValue(undefined);
+  render(<FinishOutingForm outing={example} name={exampleName} disabled={false} onSave={save} />);
+  change("Actual finish time", local(new Date(+start + 3600000)));
+  change("Ending mileage (km)", "125462");
+  change("What did you teach today?", "Junctions, roundabouts and right of way");
+  expect(screen.getByText("Change time, topic or notes for one student")).toBeVisible();
+  fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+  change("Was fuel bought during this trip?", "no");
+  fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+  expect(screen.getByRole("region", { name: "Lesson summary" })).toHaveTextContent(
+    "Junctions, roundabouts and right of way"
+  );
+  fireEvent.click(screen.getByRole("button", { name: "Finish training" }));
+  await waitFor(() => expect(save).toHaveBeenCalledOnce());
+  expect(save).toHaveBeenCalledWith(
+    expect.objectContaining({
+      lessons: [
+        {
+          studentId: "a",
+          minutes: 30,
+          topics: "Junctions, roundabouts and right of way",
+          note: ""
+        },
+        {
+          studentId: "b",
+          minutes: 30,
+          topics: "Junctions, roundabouts and right of way",
+          note: ""
+        }
       ]
     })
   );
@@ -115,11 +150,12 @@ it("rejects lower mileage and missing topics with focused field errors, but perm
   );
   expect(mileage).toHaveFocus();
   fireEvent.input(mileage, { target: { value: "125462" } });
-  const topics = screen.getByLabelText("Topics taught — Grace");
+  change("What did you teach today?", "");
+  const topics = screen.getByLabelText("Different topic (optional) — Grace");
   fireEvent.change(topics, { target: { value: "   " } });
   fireEvent.click(screen.getByRole("button", { name: "Continue" }));
-  expect(screen.getByRole("alert")).toHaveTextContent("Enter what was taught during this lesson.");
-  expect(topics).toHaveFocus();
+  expect(screen.getByRole("alert")).toHaveTextContent("Choose what was taught");
+  expect(screen.getByLabelText("What did you teach today?")).toHaveFocus();
   fireEvent.input(topics, { target: { value: "Turning" } });
   change("Driving minutes — Emeka", "20");
   change("Driving minutes — Grace", "0");
@@ -165,8 +201,9 @@ it("preserves entries between steps and saves the reviewed lesson and fuel detai
   render(<FinishOutingForm outing={outing} name={name} disabled={false} onSave={onSave} />);
   change("Actual finish time", local(new Date(+start + 3600000)));
   change("Ending mileage (km)", "120");
-  change("Topics taught — Ada", "Braking");
-  change("Topics taught — Bola", "Turning");
+  change("What did you teach today?", "Real-road driving practice");
+  change("Different topic (optional) — Ada", "Braking");
+  change("Different topic (optional) — Bola", "Turning");
   fireEvent.click(screen.getByRole("button", { name: "Continue" }));
   expect(screen.getByRole("heading", { name: /Step 2/ })).toBeInTheDocument();
   change("Fuel bought (litres)", "3");
@@ -175,7 +212,7 @@ it("preserves entries between steps and saves the reviewed lesson and fuel detai
   change("Mileage when fuel was bought (km)", "105");
   change("Did this purchase fill the tank completely?", "no");
   fireEvent.click(screen.getByRole("button", { name: "Back" }));
-  expect(screen.getByLabelText("Topics taught — Ada")).toHaveValue("Braking");
+  expect(screen.getByLabelText("Different topic (optional) — Ada")).toHaveValue("Braking");
   fireEvent.click(screen.getByRole("button", { name: "Continue" }));
   expect(screen.getByLabelText("Fuel receipt reference")).toHaveValue("TEST-1");
   fireEvent.click(screen.getByRole("button", { name: "Continue" }));
@@ -201,8 +238,7 @@ it("keeps an impossible driving duration on the first step with a useful error",
   render(<FinishOutingForm outing={outing} name={name} disabled={false} onSave={onSave} />);
   change("Actual finish time", local(new Date(+start + 1800000)));
   change("Ending mileage (km)", "120");
-  change("Topics taught — Ada", "Braking");
-  change("Topics taught — Bola", "Turning");
+  change("What did you teach today?", "Road signs, rules and safe driving");
   fireEvent.click(screen.getByRole("button", { name: "Continue" }));
   expect(screen.getByRole("alert")).toHaveTextContent("60 driving minutes");
   expect(screen.getByRole("heading", { name: /Step 1/ })).toBeInTheDocument();

@@ -1,4 +1,4 @@
-import { StudentProgressSummary } from "./StudentProgressSummary";
+import { StudentTrainingReport } from "./StudentTrainingReport";
 import { EntryForm, Field } from "./TrainingFields";
 import { ProfileSettings } from "./ProfileSettings";
 import { DocumentReminders } from "./DocumentReminders";
@@ -8,7 +8,8 @@ import { EnrollmentSettings } from "./EnrollmentSettings";
 import { EnrollmentReview } from "./EnrollmentReview";
 import { EligibilityCard } from "./EligibilityCard";
 import { SchoolRulesSettings } from "./SchoolRulesSettings";
-import { BookTrainingForm } from "./BookTrainingForm";
+import { CurriculumSettings } from "./CurriculumSettings";
+import { BookTrainingForm, type BookingRequirement } from "./BookTrainingForm";
 import { StudentConfirmation } from "./StudentConfirmation";
 import { TrainingTripCard } from "./TrainingTripCard";
 import { SetupGuide } from "./SetupGuide";
@@ -62,6 +63,8 @@ export function TrainingPage({
   initialStudentId = "",
   initialTab,
   initialFilter = "today",
+  initialBook = false,
+  initialSetupArea = "",
   onAddStudent,
   onVehicles
 }: {
@@ -70,6 +73,8 @@ export function TrainingPage({
   initialStudentId?: string;
   initialTab?: "outings" | "students" | "setup" | "costs";
   initialFilter?: TrainingView;
+  initialBook?: boolean;
+  initialSetupArea?: SetupArea | "";
   onAddStudent?: () => void;
   onVehicles?: () => void;
 }) {
@@ -110,7 +115,7 @@ export function TrainingPage({
     return () => window.removeEventListener(trainingSyncEvent, listener);
   }, [user]);
   const [tab, setTab] = useState<"outings" | "students" | "setup" | "registrations" | "costs">(
-      initialTab ?? (initialStudentId ? "students" : "outings")
+      initialTab ?? (initialBook ? "outings" : initialStudentId ? "students" : "outings")
     ),
     [studentFilter, setStudentFilter] = useState(initialStudentId);
   const [outingFilter, setOutingFilter] = useState<TrainingView>(initialFilter);
@@ -119,23 +124,30 @@ export function TrainingPage({
     const timer = window.setInterval(() => setScheduleNow(new Date()), 60000);
     return () => window.clearInterval(timer);
   }, []);
-  const [setupTarget, setSetupTarget] = useState("");
-  const [setupArea, setSetupArea] = useState<SetupArea | "">("");
+  const [setupTarget, setSetupTarget] = useState(initialBook ? "book-outing" : "");
+  const [setupArea, setSetupArea] = useState<SetupArea | "">(initialSetupArea);
   const [accountRole, setAccountRole] = useState("STUDENT");
   useEffect(() => {
     if (!setupTarget) return;
     const target = document.getElementById(setupTarget);
+    if (!target) return;
     if (target instanceof HTMLDetailsElement) target.open = true;
     target?.scrollIntoView?.({ behavior: "smooth", block: "start" });
     target?.focus();
     setSetupTarget("");
-  }, [setupTarget, tab]);
+  }, [setupTarget, tab, data?.cached]);
   const openSetup = (target: string) => {
     setTab(target === "book-outing" ? "outings" : "setup");
     if (target === "setup-packages" || target === "setup-enrollment") setSetupArea("training");
     if (target === "setup-accounts" || target === "setup-pay") setSetupArea("people");
     if (target === "setup-accounts") setAccountRole("INSTRUCTOR");
     setSetupTarget(target);
+  };
+  const resolveBookingRequirement = (requirement: BookingRequirement) => {
+    if (requirement === "students") return onAddStudent?.();
+    if (requirement === "vehicles") return onVehicles?.();
+    if (requirement === "instructors") return openSetup("setup-accounts");
+    openSetup(requirement === "packages" ? "setup-packages" : "setup-enrollment");
   };
   const owner = user.role === "OWNER",
     office = owner || user.role === "RECEPTIONIST",
@@ -506,7 +518,14 @@ export function TrainingPage({
             <DocumentReminders
               snapshot={snapshot}
               loadedAt={data!.cached!.loadedAt}
-              onSettings={owner ? () => setTab("setup") : undefined}
+              onSettings={
+                owner
+                  ? (area) => {
+                      setTab("setup");
+                      setSetupArea(area);
+                    }
+                  : undefined
+              }
             />
           )}
           {owner && tab === "costs" && (
@@ -529,23 +548,6 @@ export function TrainingPage({
               onVehicle={onVehicles}
             />
           )}
-          {office &&
-            tab === "outings" &&
-            (!snapshot.packages.length ||
-              !snapshot.instructors.length ||
-              !snapshot.vehicles.length ||
-              !snapshot.enrollments.length) && (
-              <section className="dm-panel training-panel training-ready">
-                <h2>Get ready for your first lesson</h2>
-                <p>
-                  Set up training packages, an instructor, a vehicle and a student’s package
-                  before booking.
-                </p>
-                <button className="dm-primary" onClick={() => setTab("setup")}>
-                  Open school setup
-                </button>
-              </section>
-            )}
           {(student || (office && tab === "students")) && (
             <section className="dm-panel training-panel">
               <h2>{student ? "My training package" : "Student progress"}</h2>
@@ -570,7 +572,18 @@ export function TrainingPage({
                     <h3>
                       {s.name} · {s.packageName}
                     </h3>
-                    <StudentProgressSummary summary={s} />
+                    <StudentTrainingReport
+                      summary={s}
+                      lessons={snapshot.lessons.filter((lesson) =>
+                        snapshot.outings.some(
+                          (outing) =>
+                            outing.id === lesson.outingId &&
+                            outing.data.members.some((member) => member.studentId === s.studentId)
+                        )
+                      )}
+                      showMoney={owner}
+                      onPrint={student ? () => window.print() : undefined}
+                    />
                     <details>
                       <summary className="min-h-[48px] cursor-pointer py-3">
                         Training days and school target
@@ -709,6 +722,8 @@ export function TrainingPage({
                   </p>
                   <BookTrainingForm
                     snapshot={snapshot}
+                    initialStudentId={initialBook ? initialStudentId : ""}
+                    onResolveMissing={resolveBookingRequirement}
                     onSave={async (payload) => {
                       await command("BOOK", crypto.randomUUID(), payload);
                       setOutingFilter("all");
@@ -865,6 +880,14 @@ export function TrainingPage({
                   onSave={command}
                 />
               )}
+              {owner && setupArea === "training" && (
+                <CurriculumSettings
+                  key={`${snapshot.curriculum?.id ?? "starter"}-${snapshot.curriculum?.version ?? 0}`}
+                  snapshot={snapshot}
+                  pending={(id) => !!pending(id).length}
+                  onSave={command}
+                />
+              )}
               <details
                 id="setup-packages"
                 tabIndex={-1}
@@ -910,13 +933,7 @@ export function TrainingPage({
                       max="200"
                       step="1"
                     />
-                    <Field
-                      label="Package fee (₦)"
-                      name="price"
-                      type="number"
-                      min="0"
-                      step="0.01"
-                    />
+                    <Field label="Package fee (₦)" name="price" type="number" min="0" step="0.01" />
                   </EntryForm>
                 )}
               </details>
@@ -1021,10 +1038,10 @@ export function TrainingPage({
                   >
                     <summary>Monthly instructor pay</summary>
                     <p>
-                      Enter the instructor’s monthly pay and the hours they will spend teaching.
-                      We use these to estimate each student’s training cost. This is not an extra
-                      wage payment. Training trips already started keep their saved rate. Enter pay
-                      for each month before training starts.
+                      Enter the instructor’s monthly pay and the hours they will spend teaching. We
+                      use these to estimate each student’s training cost. This is not an extra wage
+                      payment. Training trips already started keep their saved rate. Enter pay for
+                      each month before training starts.
                     </p>
                     <ul>
                       {snapshot.salaries.map((s) => (
@@ -1132,15 +1149,22 @@ export function TrainingPage({
                     <EntryForm
                       title="Create login account"
                       onSave={async (f) => {
-                        await trainingRequest("accounts", {
-                          role: value(f, "role"),
-                          name: value(f, "name"),
-                          phone: value(f, "phone"),
-                          password: value(f, "password"),
-                          ...(value(f, "role") === "STUDENT"
-                            ? { studentId: value(f, "studentId") }
-                            : {})
-                        });
+                        const role = value(f, "role");
+                        await trainingRequest(
+                          "accounts",
+                          role === "STUDENT"
+                            ? {
+                                role,
+                                studentId: value(f, "studentId"),
+                                password: value(f, "password")
+                              }
+                            : {
+                                role,
+                                name: value(f, "name"),
+                                phone: value(f, "phone"),
+                                password: value(f, "password")
+                              }
+                        );
                         setMessage(
                           "Account created. The account holder can sign in with their phone number and password."
                         );
@@ -1161,18 +1185,33 @@ export function TrainingPage({
                       {accountRole === "STUDENT" && (
                         <label>
                           Student record (for student accounts)
-                          <select name="studentId">
+                          <select name="studentId" required>
                             <option value="">Choose student</option>
-                            {snapshot.students.map((s) => (
-                              <option key={s.id} value={s.id}>
-                                {s.name}
-                              </option>
-                            ))}
+                            {snapshot.students
+                              .filter((s) => !s.hasAccount)
+                              .map((s) => (
+                                <option key={s.id} value={s.id}>
+                                  {s.name}
+                                  {s.phone ? ` · ${s.phone}` : ""}
+                                </option>
+                              ))}
                           </select>
                         </label>
                       )}
-                      <Field label="Name" name="name" />
-                      <Field label="Registered phone number" name="phone" type="tel" />
+                      {accountRole === "STUDENT" && snapshot.students.length === 0 && (
+                        <p>Register a student before creating student access.</p>
+                      )}
+                      {accountRole === "STUDENT" &&
+                        snapshot.students.length > 0 &&
+                        snapshot.students.every((student) => student.hasAccount) && (
+                          <p>Every registered student already has an account.</p>
+                        )}
+                      {accountRole === "INSTRUCTOR" && (
+                        <>
+                          <Field label="Name" name="name" />
+                          <Field label="Phone number" name="phone" type="tel" />
+                        </>
+                      )}
                       <label>
                         Starting password (at least 10 characters)
                         <input
