@@ -1,4 +1,5 @@
-import { describe, expect, it } from "vitest";
+import * as prismaModule from "./prisma.js";
+import { describe, expect, it, vi } from "vitest";
 import request from "supertest";
 import { createApp } from "./app.js";
 import type { AuthDeps } from "./auth/authService.js";
@@ -13,6 +14,7 @@ const noopAuthDeps: AuthDeps = {
 };
 
 const app = createApp({
+  securityLimit: async () => {},
   webOrigin: TEST_ORIGIN,
   authSecret: "test-secret-at-least-32-characters-long",
   sessionMaxAgeSeconds: 3600,
@@ -53,6 +55,7 @@ describe("CORS", () => {
 
   it("allows the browser origin when WEB_ORIGIN has a trailing slash", async () => {
     const appWithTrailingSlash = createApp({
+      securityLimit: async () => {},
       webOrigin: `${TEST_ORIGIN}/`,
       authSecret: "test-secret-at-least-32-characters-long",
       sessionMaxAgeSeconds: 3600,
@@ -77,5 +80,32 @@ describe("CORS", () => {
     // verification that production responses hide the internal message.
     expect(response.status).toBe(500);
     expect(response.body.error.code).toBe("INTERNAL_ERROR");
+  });
+});
+
+describe("receipt upload JSON limits", () => {
+  it("allows receipt bodies over 32 KB to reach route validation", async () => {
+    const lookup = vi
+      .spyOn(prismaModule, "getPrismaClient")
+      .mockReturnValue({
+        school: { findUnique: async () => ({ status: "ACTIVE" }) }
+      } as unknown as ReturnType<typeof prismaModule.getPrismaClient>);
+    const response = await request(app)
+      .post("/api/enroll/school/00000000-0000-4000-8000-000000000001/payment-claims")
+      .send({ receiptDataUrl: "x".repeat(100000) });
+    lookup.mockRestore();
+    expect(response.status).toBe(400);
+    expect(response.body.error.code).not.toBe("PAYLOAD_TOO_LARGE");
+  });
+  it("keeps normal intake small and rejects oversized receipts safely", async () => {
+    const intake = await request(app)
+      .post("/api/enroll/school")
+      .send({ padding: "x".repeat(40000) });
+    expect(intake.status).toBe(413);
+    const receipt = await request(app)
+      .post("/api/enroll/school/00000000-0000-4000-8000-000000000001/payment-claims")
+      .send({ receiptDataUrl: "x".repeat(3200000) });
+    expect(receipt.status).toBe(413);
+    expect(receipt.body.error.code).toBe("PAYLOAD_TOO_LARGE");
   });
 });

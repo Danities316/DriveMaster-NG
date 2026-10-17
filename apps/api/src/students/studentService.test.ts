@@ -269,7 +269,7 @@ describe("studentService", () => {
     });
 
     it("applies a partial update", async () => {
-      const result = await updateStudent(SCHOOL_A, "a1", { totalTuition: "175000.00" }, deps);
+      const result = await updateStudent(SCHOOL_A, "a1", { totalTuition: "175000.00" }, deps, undefined, 0);
       expect(result.ok).toBe(true);
       if (result.ok) {
         expect(result.student.totalTuition).toBe("175000.00");

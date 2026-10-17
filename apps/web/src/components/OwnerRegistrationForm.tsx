@@ -1,11 +1,11 @@
 import { useState, type FormEvent } from "react";
-import type { AuthenticatedUser } from "@drivemaster/shared";
+import type { OwnerVerificationStatus } from "@drivemaster/shared";
 import { AuthError, registerOwner } from "../lib/auth";
 
 export function OwnerRegistrationForm({
   onSuccess
 }: {
-  onSuccess: (user: AuthenticatedUser) => void;
+  onSuccess: (status: OwnerVerificationStatus) => void;
 }) {
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);

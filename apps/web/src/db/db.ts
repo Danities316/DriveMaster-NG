@@ -25,6 +25,14 @@ import type { Student } from "@drivemaster/shared";
  * rather than mutating this one, per Dexie's versioning model — existing
  * installed PWAs must be able to upgrade in place without data loss.
  */
+export interface PendingAdjustment {
+  key: string;
+  schoolId: string;
+  userId: string;
+  paymentId: string;
+  body: Record<string, unknown>;
+}
+
 export class DriveMasterDB extends Dexie {
   /**
    * Typed as StudentWithBalance (Unit 3), not the plain Student contract
@@ -53,11 +61,13 @@ export class DriveMasterDB extends Dexie {
   syncState!: Table<SyncState, string>;
   serverStudents!: Table<Student, string>;
   serverPayments!: Table<Payment, string>;
+  pendingAdjustments!: Table<PendingAdjustment, string>;
   syncLease!: Table<{ key: string; owner: string; expiresAt: number }, string>;
 
   constructor(name = "drivemaster-ng") {
     super(name);
 
+    this.version(5).stores({ pendingAdjustments: "key, schoolId, userId" });
     this.version(1).stores({
       // Primary key first, then indexed fields. `schoolId` is indexed on
       // every tenant-owned table for consistency with the server schema

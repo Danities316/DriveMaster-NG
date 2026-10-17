@@ -23,6 +23,12 @@ beforeEach(async () => {
   for (const table of db.tables) await table.clear();
 });
 describe("dashboard navigation", () => {
+  it("greets the owner by driving school name", async () => {
+    render(<Dashboard {...props()} user={{ ...user, schoolName: "Ada Driving School" }} />);
+    expect(
+      await screen.findByRole("heading", { name: "Hello, Ada Driving School." })
+    ).toBeVisible();
+  });
   it("includes this account's unsent training in the saved-record status", async () => {
     const command = {
       id: "pending-training",

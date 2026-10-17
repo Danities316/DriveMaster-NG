@@ -857,7 +857,16 @@ export async function trainingSnapshot(
   schoolId: string,
   actorId: string
 ): Promise<TrainingSnapshot> {
-  return getPrismaClient().$transaction(
+  const {
+    user,
+    rows,
+    students,
+    vehicles,
+    instructors,
+    payments,
+    studentAccounts,
+    instructorProfiles
+  } = await getPrismaClient().$transaction(
     async (tx) => {
       const user = await tx.user.findFirst({ where: { id: actorId, schoolId, isActive: true } });
       if (!user) fail("Please sign in again.", 401);
@@ -875,15 +884,6 @@ export async function trainingSnapshot(
           select: { studentId: true }
         })
       ]);
-      const packages = list<TrainingPackage>(rows, "package"),
-        enrollments = list<TrainingEnrollment>(rows, "enrollment");
-      const salaries = list<InstructorSalary>(rows, "salary"),
-        outings = list<TrainingOuting>(rows, "outing");
-      const settings = list<TrainingSettings>(rows, "settings")[0] ?? null;
-      const schoolRules = list<SchoolRules>(rows, "school_rules")[0] ?? null;
-      const enrollmentSettings = list<EnrollmentSettings>(rows, "enrollment_settings")[0] ?? null;
-      const vehicleDocuments = list<VehicleDocuments>(rows, "vehicle_documents");
-      const expenses = list<TrainingExpense>(rows, "expense");
       const instructorProfiles =
         user!.role === "STUDENT"
           ? []
@@ -896,64 +896,208 @@ export async function trainingSnapshot(
               },
               select: { id: true, nin: true, drivers_license_number: true, permitExpiryDate: true }
             });
-      const instructorDocumentWarnings = instructorProfiles.flatMap((profile) =>
-        instructorDocumentIssues(
-          profile,
-          schoolRules?.data ?? DEFAULT_SCHOOL_RULES,
-          lagosDay(new Date().toISOString())
-        ).map((issue) => ({ instructorId: profile.id, ...issue }))
-      );
-      const currentSalaries = salaries.filter(
-        (s) => s.data.month === monthOf(new Date().toISOString())
-      );
-      const futureInstructor = currentSalaries.length
-        ? splitTrainingMoney(
-            sumMoney(currentSalaries.map((s) => instructorTimeCost(s.data, 30))),
-            currentSalaries.length
-          )[0]!
-        : "0.00";
-      const summaries = enrollments.map((e) => {
-        const result = trainingSummary(
-          {
-            ...e.data,
-            price:
-              students.find((s) => s.id === e.data.studentId)?.totalTuition.toFixed(2) ??
-              e.data.price
-          },
-          students.find((s) => s.id === e.data.studentId)?.name ?? "Student",
-          sumMoney(
-            payments.filter((p) => p.studentId === e.data.studentId).map((p) => p.amount.toFixed(2))
-          ),
-          outings.map((o) => o.data),
-          settings?.data.fuelPerStudent ?? "1500.00",
-          futureInstructor,
-          expenses.map((e) => e.data)
-        );
-        if (!currentSalaries.length && result.remaining > 0) {
-          delete result.expectedMargin;
-          delete result.estimatedRemainingCost;
-        }
-        return result;
-      });
-      const base: TrainingSnapshot = {
-        viewerRole: user!.role,
-        userId: actorId,
-        schoolId,
-        packages: [],
-        enrollments: [],
-        settings: null,
-        salaries: [],
-        outings: [],
-        students: [],
-        vehicles: [],
-        instructors: [],
-        summaries: [],
-        lessons: []
+      return {
+        user: user!,
+        rows,
+        students,
+        vehicles,
+        instructors,
+        payments,
+        studentAccounts,
+        instructorProfiles
       };
-      if (user!.role === "STUDENT") {
-        const own = summaries
-          .filter((s) => s.studentId === user!.studentId)
-          .map(
+    },
+    { isolationLevel: "RepeatableRead", timeout: 20000 }
+  );
+  // Compute derived views after releasing the consistent database snapshot.
+  const packages = list<TrainingPackage>(rows, "package"),
+    enrollments = list<TrainingEnrollment>(rows, "enrollment");
+  const salaries = list<InstructorSalary>(rows, "salary"),
+    outings = list<TrainingOuting>(rows, "outing");
+  const settings = list<TrainingSettings>(rows, "settings")[0] ?? null;
+  const schoolRules = list<SchoolRules>(rows, "school_rules")[0] ?? null;
+  const enrollmentSettings = list<EnrollmentSettings>(rows, "enrollment_settings")[0] ?? null;
+  const vehicleDocuments = list<VehicleDocuments>(rows, "vehicle_documents");
+  const expenses = list<TrainingExpense>(rows, "expense");
+  const instructorDocumentWarnings = instructorProfiles.flatMap((profile) =>
+    instructorDocumentIssues(
+      profile,
+      schoolRules?.data ?? DEFAULT_SCHOOL_RULES,
+      lagosDay(new Date().toISOString())
+    ).map((issue) => ({ instructorId: profile.id, ...issue }))
+  );
+  const currentSalaries = salaries.filter(
+    (s) => s.data.month === monthOf(new Date().toISOString())
+  );
+  const futureInstructor = currentSalaries.length
+    ? splitTrainingMoney(
+        sumMoney(currentSalaries.map((s) => instructorTimeCost(s.data, 30))),
+        currentSalaries.length
+      )[0]!
+    : "0.00";
+  const studentsById = new Map(students.map((s) => [s.id, s]));
+  const accountIds = new Set(studentAccounts.map((a) => a.studentId));
+  const paymentsByStudent = new Map<string, string[]>();
+  for (const payment of payments) {
+    const values = paymentsByStudent.get(payment.studentId) ?? [];
+    values.push(payment.amount.toFixed(2));
+    paymentsByStudent.set(payment.studentId, values);
+  }
+  const outingsByStudent = new Map<string, TrainingOuting[]>();
+  for (const outing of outings) {
+    for (const studentId of new Set(outing.data.members.map((m) => m.studentId))) {
+      const values = outingsByStudent.get(studentId) ?? [];
+      values.push(outing.data);
+      outingsByStudent.set(studentId, values);
+    }
+  }
+  const expensesByStudent = new Map<string, TrainingExpense[]>();
+  for (const expense of expenses) {
+    for (const studentId of new Set(expense.data.allocations.map((a) => a.studentId))) {
+      const values = expensesByStudent.get(studentId) ?? [];
+      values.push(expense.data);
+      expensesByStudent.set(studentId, values);
+    }
+  }
+  const summaries = enrollments
+    .filter((e) => user.role !== "STUDENT" || e.data.studentId === user.studentId)
+    .map((e) => {
+      const result = trainingSummary(
+        {
+          ...e.data,
+          price: studentsById.get(e.data.studentId)?.totalTuition.toFixed(2) ?? e.data.price
+        },
+        studentsById.get(e.data.studentId)?.name ?? "Student",
+        sumMoney(paymentsByStudent.get(e.data.studentId) ?? []),
+        outingsByStudent.get(e.data.studentId) ?? [],
+        settings?.data.fuelPerStudent ?? "1500.00",
+        futureInstructor,
+        expensesByStudent.get(e.data.studentId) ?? []
+      );
+      if (!currentSalaries.length && result.remaining > 0) {
+        delete result.expectedMargin;
+        delete result.estimatedRemainingCost;
+      }
+      return result;
+    });
+  const base: TrainingSnapshot = {
+    viewerRole: user!.role,
+    userId: actorId,
+    schoolId,
+    packages: [],
+    enrollments: [],
+    settings: null,
+    salaries: [],
+    outings: [],
+    students: [],
+    vehicles: [],
+    instructors: [],
+    summaries: [],
+    lessons: []
+  };
+  if (user!.role === "STUDENT") {
+    const own = summaries
+      .filter((s) => s.studentId === user!.studentId)
+      .map(
+        ({
+          fuelCost: _f,
+          instructorCost: _i,
+          costSoFar: _c,
+          estimatedRemainingCost: _r,
+          expectedMargin: _m,
+          otherRecordedCost: _oc,
+          otherEstimatedCost: _oe,
+          paymentsLessRecordedCosts: _pc,
+          fuelAdvanceInProgress: _fa,
+          ...safe
+        }) => safe
+      );
+    const lessons: StudentLessonView[] = outings.flatMap((o) =>
+      o.data.members
+        .filter((m) => m.studentId === user!.studentId)
+        .map((m) => ({
+          outingId: o.id,
+          version: o.version,
+          instructor: instructors.find((i) => i.id === o.data.instructorId)?.name ?? "Instructor",
+          vehicle: vehicles.find((v) => v.id === o.data.vehicleId)?.plateNumber ?? "Vehicle",
+          date: o.data.startedAt ?? o.data.plannedStart,
+          minutes: m.minutes,
+          status: m.status,
+          topics: m.topics,
+          note: m.note,
+          response: m.response,
+          reviewReason: m.reviewReason
+        }))
+    );
+    return { ...base, summaries: own, lessons };
+  }
+  if (user!.role === "INSTRUCTOR") {
+    const assigned = outings
+      .filter((o) => o.data.instructorId === actorId)
+      .map((o) => ({
+        ...o,
+        data: {
+          ...o.data,
+          salarySnapshot: undefined,
+          instructorCost: undefined,
+          members: o.data.members.map(({ instructorCost: _i, ...safe }) => safe)
+        }
+      }));
+    const ids = new Set(assigned.flatMap((o) => o.data.members.map((m) => m.studentId)));
+    return {
+      ...base,
+      outings: assigned,
+      schoolRules: schoolRules
+        ? { ...schoolRules, data: { ...schoolRules.data, reason: "School rules" } }
+        : null,
+      vehicleDocuments: vehicleDocuments.filter((v) =>
+        assigned.some((o) => o.data.vehicleId === v.data.vehicleId)
+      ),
+      instructorPermitDates: instructorProfiles.map((i) => ({
+        instructorId: i.id,
+        expiresOn: i.permitExpiryDate
+      })),
+      instructorDocumentWarnings,
+      instructors,
+      vehicles: vehicles
+        .filter((v) => assigned.some((o) => o.data.vehicleId === v.id))
+        .map(({ id, plateNumber }) => ({ id, plateNumber })),
+      students: students
+        .filter((s) => ids.has(s.id))
+        .map(({ id, name }) => ({ id, name, totalTuition: "0.00" }))
+    };
+  }
+  return {
+    ...base,
+    schoolRules,
+    vehicleDocuments,
+    instructorPermitDates: instructorProfiles.map((i) => ({
+      instructorId: i.id,
+      expiresOn: i.permitExpiryDate
+    })),
+    expenses: user!.role === "OWNER" ? expenses : [],
+    enrollmentSettings: user!.role === "OWNER" ? enrollmentSettings : null,
+    instructorDocumentWarnings,
+    packages,
+    enrollments,
+    settings,
+    outings:
+      user!.role === "OWNER"
+        ? outings
+        : outings.map((o) => ({
+            ...o,
+            data: {
+              ...o.data,
+              salarySnapshot: undefined,
+              instructorCost: undefined,
+              members: o.data.members.map(({ instructorCost: _i, ...m }) => m)
+            }
+          })),
+    salaries: user!.role === "OWNER" ? salaries : [],
+    summaries:
+      user!.role === "OWNER"
+        ? summaries
+        : summaries.map(
             ({
               fuelCost: _f,
               instructorCost: _i,
@@ -966,119 +1110,16 @@ export async function trainingSnapshot(
               fuelAdvanceInProgress: _fa,
               ...safe
             }) => safe
-          );
-        const lessons: StudentLessonView[] = outings.flatMap((o) =>
-          o.data.members
-            .filter((m) => m.studentId === user!.studentId)
-            .map((m) => ({
-              outingId: o.id,
-              version: o.version,
-              instructor:
-                instructors.find((i) => i.id === o.data.instructorId)?.name ?? "Instructor",
-              vehicle: vehicles.find((v) => v.id === o.data.vehicleId)?.plateNumber ?? "Vehicle",
-              date: o.data.startedAt ?? o.data.plannedStart,
-              minutes: m.minutes,
-              status: m.status,
-              topics: m.topics,
-              note: m.note,
-              response: m.response,
-              reviewReason: m.reviewReason
-            }))
-        );
-        return { ...base, summaries: own, lessons };
-      }
-      if (user!.role === "INSTRUCTOR") {
-        const assigned = outings
-          .filter((o) => o.data.instructorId === actorId)
-          .map((o) => ({
-            ...o,
-            data: {
-              ...o.data,
-              salarySnapshot: undefined,
-              instructorCost: undefined,
-              members: o.data.members.map(({ instructorCost: _i, ...safe }) => safe)
-            }
-          }));
-        const ids = new Set(assigned.flatMap((o) => o.data.members.map((m) => m.studentId)));
-        return {
-          ...base,
-          outings: assigned,
-          schoolRules: schoolRules
-            ? { ...schoolRules, data: { ...schoolRules.data, reason: "School rules" } }
-            : null,
-          vehicleDocuments: vehicleDocuments.filter((v) =>
-            assigned.some((o) => o.data.vehicleId === v.data.vehicleId)
           ),
-          instructorPermitDates: instructorProfiles.map((i) => ({
-            instructorId: i.id,
-            expiresOn: i.permitExpiryDate
-          })),
-          instructorDocumentWarnings,
-          instructors,
-          vehicles: vehicles
-            .filter((v) => assigned.some((o) => o.data.vehicleId === v.id))
-            .map(({ id, plateNumber }) => ({ id, plateNumber })),
-          students: students
-            .filter((s) => ids.has(s.id))
-            .map(({ id, name }) => ({ id, name, totalTuition: "0.00" }))
-        };
-      }
-      return {
-        ...base,
-        schoolRules,
-        vehicleDocuments,
-        instructorPermitDates: instructorProfiles.map((i) => ({
-          instructorId: i.id,
-          expiresOn: i.permitExpiryDate
-        })),
-        expenses: user!.role === "OWNER" ? expenses : [],
-        enrollmentSettings: user!.role === "OWNER" ? enrollmentSettings : null,
-        instructorDocumentWarnings,
-        packages,
-        enrollments,
-        settings,
-        outings:
-          user!.role === "OWNER"
-            ? outings
-            : outings.map((o) => ({
-                ...o,
-                data: {
-                  ...o.data,
-                  salarySnapshot: undefined,
-                  instructorCost: undefined,
-                  members: o.data.members.map(({ instructorCost: _i, ...m }) => m)
-                }
-              })),
-        salaries: user!.role === "OWNER" ? salaries : [],
-        summaries:
-          user!.role === "OWNER"
-            ? summaries
-            : summaries.map(
-                ({
-                  fuelCost: _f,
-                  instructorCost: _i,
-                  costSoFar: _c,
-                  estimatedRemainingCost: _r,
-                  expectedMargin: _m,
-                  otherRecordedCost: _oc,
-                  otherEstimatedCost: _oe,
-                  paymentsLessRecordedCosts: _pc,
-                  fuelAdvanceInProgress: _fa,
-                  ...safe
-                }) => safe
-              ),
-        students: students.map(({ id, name, phone, totalTuition, version }) => ({
-          version,
-          id,
-          name,
-          phone,
-          hasAccount: studentAccounts.some((account) => account.studentId === id),
-          totalTuition: totalTuition.toFixed(2)
-        })),
-        vehicles: vehicles.map(({ id, plateNumber }) => ({ id, plateNumber })),
-        instructors
-      };
-    },
-    { isolationLevel: "RepeatableRead", timeout: 20000 }
-  );
+    students: students.map(({ id, name, phone, totalTuition, version }) => ({
+      version,
+      id,
+      name,
+      phone,
+      hasAccount: accountIds.has(id),
+      totalTuition: totalTuition.toFixed(2)
+    })),
+    vehicles: vehicles.map(({ id, plateNumber }) => ({ id, plateNumber })),
+    instructors
+  };
 }

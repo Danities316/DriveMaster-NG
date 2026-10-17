@@ -21,9 +21,23 @@ export class KnownApiError extends Error {
 }
 
 export function errorHandler(err: unknown, req: Request, res: Response, _next: NextFunction): void {
+  const parserType = err && typeof err === "object" && "type" in err ? err.type : undefined;
+  if (parserType === "entity.too.large" || parserType === "entity.parse.failed") {
+    res.status(parserType === "entity.too.large" ? 413 : 400).json({
+      error: {
+        message:
+          parserType === "entity.too.large"
+            ? "Upload is too large. Choose a receipt image under 2 MB."
+            : "Invalid JSON request.",
+        code: parserType === "entity.too.large" ? "PAYLOAD_TOO_LARGE" : "VALIDATION_ERROR"
+      }
+    });
+    return;
+  }
   const isProduction = process.env["NODE_ENV"] === "production";
 
   if (err instanceof KnownApiError) {
+    if (err.statusCode === 429 && !res.getHeader("Retry-After")) res.setHeader("Retry-After", "60");
     const body: ApiErrorResponse = {
       error: { message: err.message, code: err.code }
     };

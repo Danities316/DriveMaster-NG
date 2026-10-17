@@ -110,7 +110,7 @@ it("uses the five plain owner destinations and routes every primary action", () 
 it.each([
   ["RECEPTIONIST", ["Home", "Students", "Training", "Money", "More"]],
   ["INSTRUCTOR", ["Home", "Training"]],
-  ["STUDENT", []]
+  ["STUDENT", ["Home", "Training"]]
 ] as const)("shows only permitted navigation to %s", (role, allowed) => {
   render(
     <AppShell user={{ ...user, role }} section="home" onNavigate={() => {}} onLogout={() => {}}>

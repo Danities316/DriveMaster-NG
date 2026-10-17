@@ -38,6 +38,7 @@ export function toStudent(row: DbStudent): Student {
 function toPayment(row: DbPayment): Payment {
   return {
     ...row,
+    entryType: row.entryType as Payment["entryType"],
     amount: row.amount.toFixed(2),
     currency: "NGN",
     paymentDate: row.paymentDate.toISOString(),
@@ -185,6 +186,7 @@ export async function processMutation(
             row = await tx.payment.create({
               data: {
                 ...data,
+                recordedById: userId,
                 reference,
                 schoolId,
                 studentId,
@@ -234,9 +236,15 @@ export async function pullChanges(
   const rows = await getPrismaClient().syncChange.findMany({
     where: { schoolId, id: { gt: BigInt(cursor) } },
     orderBy: { id: "asc" },
-    take: limit + 1
+    take: limit + 2
   });
-  const page = rows.slice(0, limit);
+  const group = (row: (typeof rows)[number] | undefined) => {
+    const record = row?.record as Record<string, unknown> | undefined;
+    return row?.entity === "payment" ? record?.["adjustmentId"] : null;
+  };
+  let size = limit;
+  if (group(rows[limit - 1]) && group(rows[limit - 1]) === group(rows[limit])) size++;
+  const page = rows.slice(0, size);
   return {
     changes: page.map((row) => ({
       cursor: row.id.toString(),
@@ -245,7 +253,7 @@ export async function pullChanges(
       record: row.record
     })) as unknown as SyncPullResponse["changes"],
     nextCursor: page.at(-1)?.id.toString() ?? cursor,
-    hasMore: rows.length > limit
+    hasMore: rows.length > size
   };
 }
 export const syncDeps: SyncDeps = { process: processMutation, pull: pullChanges };

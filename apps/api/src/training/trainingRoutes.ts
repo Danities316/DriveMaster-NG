@@ -1,18 +1,28 @@
+import { changeStaffAccess, staffAccessInput } from "./staffAccounts.js";
 import { Router } from "express";
 import { z, ZodError } from "zod";
 import { createAuthenticateMiddleware } from "../middleware/authenticate.js";
 import type { AuthDeps } from "../auth/authService.js";
 import { KnownApiError } from "../middleware/errorHandler.js";
 import { getPrismaClient } from "../prisma.js";
-import { hashPassword, verifyPassword } from "../auth/password.js";
+import { hashPasswordAsync } from "../auth/password.js";
 import { normalizeNigerianPhone } from "../auth/phone.js";
 import { executeTraining, trainingSnapshot } from "./trainingService.js";
 import { createProfileRouter } from "./profileRoutes.js";
 import { createEnrollmentReviewRouter } from "./enrollmentRoutes.js";
+import { changeAccountPassword } from "../auth/passwordRecovery.js";
+import { securityLimit } from "../middleware/securityLimits.js";
 
 export function createTrainingRouter(options: { authSecret: string; authDeps: AuthDeps }) {
   const router = Router();
-  router.use(createAuthenticateMiddleware(options.authSecret, options.authDeps.findUserByPhone));
+  router.use(
+    createAuthenticateMiddleware(
+      options.authSecret,
+      options.authDeps.findUserByPhone,
+      false,
+      options.authDeps.isTokenRevoked
+    )
+  );
   router.use((req, _res, next) => {
     if (
       req.get("X-Training-User") !== req.auth!.userId ||
@@ -61,6 +71,70 @@ export function createTrainingRouter(options: { authSecret: string; authDeps: Au
       else next(e);
     }
   });
+  router.get("/accounts", async (req, res, next) => {
+    try {
+      if (req.auth!.role !== "OWNER")
+        throw new KnownApiError("Only the owner can manage staff.", 403, "FORBIDDEN");
+      const offset = z.coerce
+        .number()
+        .int()
+        .min(0)
+        .max(1000000)
+        .parse(req.query.offset ?? 0);
+      const rows = await getPrismaClient().user.findMany({
+        where: { schoolId: req.auth!.schoolId, role: { in: ["INSTRUCTOR", "RECEPTIONIST"] } },
+        select: {
+          id: true,
+          name: true,
+          phone: true,
+          role: true,
+          isActive: true,
+          sessionVersion: true
+        },
+        orderBy: { id: "asc" },
+        skip: offset,
+        take: 101
+      });
+      res
+        .set("Cache-Control", "no-store")
+        .json({
+          accounts: rows
+            .slice(0, 100)
+            .map(({ sessionVersion, ...row }) => ({ ...row, version: sessionVersion })),
+          hasMore: rows.length > 100
+        });
+    } catch (e) {
+      next(
+        e instanceof ZodError
+          ? new KnownApiError("Invalid staff page.", 400, "VALIDATION_ERROR")
+          : e
+      );
+    }
+  });
+  router.post("/accounts/:id/access", async (req, res, next) => {
+    try {
+      if (req.auth!.role !== "OWNER")
+        throw new KnownApiError("Only the owner can manage staff.", 403, "FORBIDDEN");
+      res.json(
+        await changeStaffAccess(
+          req.auth!.schoolId,
+          req.auth!.userId,
+          String(req.params.id),
+          staffAccessInput.parse(req.body)
+        )
+      );
+    } catch (e) {
+      next(
+        e instanceof ZodError
+          ? new KnownApiError(
+              e.issues[0]?.message ?? "Check access details.",
+              400,
+              "VALIDATION_ERROR"
+            )
+          : e
+      );
+    }
+  });
   // Passwords are sent online only; never stored in the offline queue or audit metadata.
   router.post("/accounts", async (req, res, next) => {
     try {
@@ -69,7 +143,7 @@ export function createTrainingRouter(options: { authSecret: string; authDeps: Au
       const input = z
         .discriminatedUnion("role", [
           z.object({
-            role: z.literal("INSTRUCTOR"),
+            role: z.enum(["INSTRUCTOR", "RECEPTIONIST"]),
             name: z.string().trim().min(1, "Enter the instructor's name.").max(100),
             phone: z.string().trim().min(1, "Enter the instructor's phone number.").max(30),
             password: z.string().min(10, "Use at least 10 characters for the password.").max(128)
@@ -81,7 +155,7 @@ export function createTrainingRouter(options: { authSecret: string; authDeps: Au
           })
         ])
         .parse(req.body);
-      const passwordHash = hashPassword(input.password);
+      const passwordHash = await hashPasswordAsync(input.password);
       await getPrismaClient().$transaction(async (tx) => {
         await tx.$queryRaw`SELECT id FROM schools WHERE id = ${req.auth!.schoolId} FOR UPDATE`;
         const owner = await tx.user.findFirst({
@@ -107,7 +181,7 @@ export function createTrainingRouter(options: { authSecret: string; authDeps: Au
             "INVALID_STUDENT"
           );
         const phone = normalizeNigerianPhone(
-          student?.phone ?? (input.role === "INSTRUCTOR" ? input.phone : "")
+          student?.phone ?? (input.role !== "STUDENT" ? input.phone : "")
         );
         if (!phone)
           throw new KnownApiError(
@@ -119,7 +193,7 @@ export function createTrainingRouter(options: { authSecret: string; authDeps: Au
           );
         const account = await tx.user.create({
           data: {
-            name: student?.name ?? (input.role === "INSTRUCTOR" ? input.name : ""),
+            name: student?.name ?? (input.role !== "STUDENT" ? input.name : ""),
             phone,
             role: input.role,
             passwordHash,
@@ -159,7 +233,7 @@ export function createTrainingRouter(options: { authSecret: string; authDeps: Au
       else next(e);
     }
   });
-  router.post("/password", async (req, res, next) => {
+  router.post("/password", securityLimit("change-password", 15, 900000), async (req, res, next) => {
     try {
       const input = z
         .object({
@@ -167,15 +241,7 @@ export function createTrainingRouter(options: { authSecret: string; authDeps: Au
           password: z.string().min(10).max(128)
         })
         .parse(req.body);
-      const user = await getPrismaClient().user.findFirst({
-        where: { id: req.auth!.userId, schoolId: req.auth!.schoolId, isActive: true }
-      });
-      if (!user || !verifyPassword(input.currentPassword, user.passwordHash))
-        throw new KnownApiError("The current password is incorrect.", 400, "PASSWORD_ERROR");
-      await getPrismaClient().user.update({
-        where: { id: user.id },
-        data: { passwordHash: hashPassword(input.password) }
-      });
+      await changeAccountPassword(req.auth!.userId, input.currentPassword, input.password);
       res.json({ success: true });
     } catch (e) {
       next(

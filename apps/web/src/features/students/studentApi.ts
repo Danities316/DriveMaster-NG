@@ -1,6 +1,6 @@
 import type {
   CreateStudentRequest,
-  UpdateStudentRequest,
+  UpdateStudentOnServerRequest,
   StudentListQuery,
   StudentListResponse,
   StudentResponse,
@@ -88,7 +88,7 @@ export async function createStudentOnServer(
 
 export async function updateStudentOnServer(
   id: string,
-  patch: UpdateStudentRequest
+  patch: UpdateStudentOnServerRequest
 ): Promise<StudentWithBalance> {
   const response = await fetch(`${API_BASE_URL}/students/${id}`, {
     method: "PATCH",

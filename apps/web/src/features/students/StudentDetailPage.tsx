@@ -1,3 +1,4 @@
+import { PaymentAdjustment } from "./PaymentAdjustment";
 import { type FormEvent, useEffect, useState } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
 import { ArrowLeft, Pencil } from "lucide-react";
@@ -270,7 +271,7 @@ export function StudentDetailPage({
               <StudentTrainingReport
                 summary={trainingSummary}
                 lessons={studentLessons}
-                showMoney={viewer?.role === "OWNER" || viewer?.role === "RECEPTIONIST"}
+                showMoney={false}
               />
               <p className="text-sm text-slate-600">
                 Accepted training records, last loaded {formatDate(training!.loadedAt)}. Open
@@ -464,6 +465,24 @@ export function StudentDetailPage({
                   </span>
                   <span className="font-medium text-brand-link">₦{payment.amount}</span>
                 </div>
+                {payment.entryType && payment.entryType !== "PAYMENT" && (
+                  <p>{payment.entryType.replaceAll("_", " ")}</p>
+                )}
+                {payment.reason && <p>Reason: {payment.reason}</p>}
+                {payment.originalPaymentId && (
+                  <p className="text-xs">Linked entry: {payment.originalPaymentId}</p>
+                )}
+                {viewer?.role === "OWNER" &&
+                  syncState?.bootstrapComplete &&
+                  !localPaymentHistory?.queuedPaymentIds.length &&
+                  (!payment.entryType || ["PAYMENT", "REFUND"].includes(payment.entryType)) && (
+                    <PaymentAdjustment
+                      key={payment.id}
+                      payment={payment}
+                      schoolId={viewer.schoolId}
+                      userId={viewer.id}
+                    />
+                  )}
                 <div className="flex flex-wrap gap-x-3 gap-y-1 text-sm text-slate-600">
                   <span>
                     {payment.method === "BANK_TRANSFER"

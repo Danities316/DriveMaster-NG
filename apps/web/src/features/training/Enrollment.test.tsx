@@ -15,6 +15,7 @@ vi.mock("qrcode", () => ({
   default: { toDataURL: vi.fn().mockResolvedValue("data:image/png;base64,cXJjb2Rl") }
 }));
 afterEach(() => {
+  localStorage.clear();
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
 });
@@ -193,4 +194,80 @@ it("creates unique UUIDs without relying on secure-context randomUUID", () => {
     second = registrationId();
   expect(first).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
   expect(first).not.toBe(second);
+});
+
+it("resumes a received registration after reload without storing applicant details", async () => {
+  const access = { id: registrationId(), token: "a".repeat(64), paymentId: registrationId() };
+  localStorage.setItem("drivemaster:enrollmentResume:school", JSON.stringify(access));
+  const fetcher = vi
+    .fn()
+    .mockResolvedValueOnce(
+      response({
+        received: true,
+        reference: access.id,
+        status: "PENDING_PAYMENT",
+        paymentReport: null
+      })
+    )
+    .mockResolvedValueOnce(
+      response({ ...info, settings: { ...info.settings, showBankTransfer: true } })
+    )
+    .mockResolvedValueOnce(response({ received: true }));
+  vi.stubGlobal("fetch", fetcher);
+  render(<PublicEnrollmentPage schoolId="school" />);
+  await screen.findByRole("heading", { name: "Your details have been received" });
+  expect(screen.queryByLabelText("First name *")).toBeNull();
+  expect(fetcher.mock.calls[0]![1].headers["X-Enrollment-Token"]).toBe(access.token);
+  fireEvent.click(screen.getByText("I have made payment"));
+  fireEvent.change(screen.getByLabelText(/Amount transferred/), { target: { value: "25000" } });
+  fireEvent.change(screen.getByLabelText("Transfer date"), { target: { value: "2026-10-03" } });
+  fireEvent.change(screen.getByLabelText(/Name on the sender/), { target: { value: "Bola Ade" } });
+  fireEvent.click(screen.getByRole("button", { name: "Send payment details" }));
+  await screen.findByText("Payment details sent");
+  expect(JSON.parse(fetcher.mock.calls[2]![1].body).id).toBe(access.paymentId);
+  expect(JSON.parse(localStorage.getItem("drivemaster:enrollmentResume:school")!)).toEqual(access);
+});
+it("checks an uncertain report after remount and displays its confirmed status without resubmitting", async () => {
+  const access = { id: registrationId(), token: "b".repeat(64), paymentId: registrationId() };
+  localStorage.setItem("drivemaster:enrollmentResume:school", JSON.stringify(access));
+  const fetcher = vi
+    .fn()
+    .mockResolvedValueOnce(
+      response({
+        received: true,
+        reference: access.id,
+        status: "ACTIVE",
+        paymentReport: { id: access.paymentId, status: "CONFIRMED" }
+      })
+    )
+    .mockResolvedValueOnce(response(info));
+  vi.stubGlobal("fetch", fetcher);
+  render(<PublicEnrollmentPage schoolId="school" />);
+  await screen.findByText("The school confirmed this payment report.");
+  expect(screen.queryByText("Send payment details")).toBeNull();
+  expect(fetcher).toHaveBeenCalledTimes(2);
+  fireEvent.click(screen.getByText("Clear this registration from this device"));
+  expect(localStorage.getItem("drivemaster:enrollmentResume:school")).toBeNull();
+  expect(await screen.findByLabelText("First name *")).toBeVisible();
+});
+it("does not expose a new intake form when saved access is rejected", async () => {
+  localStorage.setItem(
+    "drivemaster:enrollmentResume:school",
+    JSON.stringify({ id: registrationId(), token: "c".repeat(64), paymentId: registrationId() })
+  );
+  vi.stubGlobal(
+    "fetch",
+    vi
+      .fn()
+      .mockResolvedValue({
+        ok: false,
+        status: 403,
+        json: async () => ({
+          error: { message: "Registration access expired. Contact the school." }
+        })
+      })
+  );
+  render(<PublicEnrollmentPage schoolId="school" />);
+  expect(await screen.findByRole("alert")).toHaveTextContent("expired");
+  expect(screen.queryByLabelText("First name *")).toBeNull();
 });

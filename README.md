@@ -11,6 +11,11 @@ The home page is available at `/#home`, sign-in at `/#login`, and the authentica
 
 - React, Vite, TypeScript, Tailwind and Dexie frontend; Express, Prisma and PostgreSQL backend.
 - Phone/password login with HTTP-only signed session cookies and current-account role checks.
+- Owner signup requires SMS phone verification before workspace access. Existing owners verify
+  on their next online session. See [OWNER_SMS_VERIFICATION.md](OWNER_SMS_VERIFICATION.md) for
+  KudiSMS configuration, local mock mode, migration and acceptance checks.
+- Password recovery, session revocation, school suspension and durable abuse limits are
+  documented in [ACCOUNT_SECURITY.md](ACCOUNT_SECURITY.md).
 - School-scoped student registration, editing, search and append-only NGN payments.
 - Exact integer money arithmetic, input validation and derived balances.
 - Atomic local saves, automatic outbox delivery, persistent retries, incremental downloads and explicit student conflict resolution.
@@ -76,3 +81,9 @@ Regular tests use fake IndexedDB and mocked HTTP/repositories. The PostgreSQL in
 - GET /api/health
 
 The backend derives tenant and actor identity from the authenticated session. Supplied school IDs must match it. Instructor accounts cannot access student/payment synchronization. Payments cannot be edited or deleted through these APIs.
+
+Phase 3 financial corrections, refunds, receipt limits and deployment notes: [FINANCIAL_RELIABILITY.md](FINANCIAL_RELIABILITY.md).
+
+Current production-readiness batches and verified progress: [PRODUCTION_READINESS.md](PRODUCTION_READINESS.md).
+
+Batch 4 release, backup/restore rehearsal, monitoring and staged acceptance: [LAUNCH_RUNBOOK.md](LAUNCH_RUNBOOK.md). `GET /api/ready` checks database availability separately from process liveness at `/api/health`.

@@ -163,7 +163,7 @@ function buildPaymentDeps(): PaymentDeps {
 
 function buildApp(paymentDeps: PaymentDeps) {
     return createApp({
-        webOrigin: "http://localhost:5173",
+        securityLimit: async () => {}, webOrigin: "http://localhost:5173",
         authSecret: AUTH_SECRET,
         sessionMaxAgeSeconds: SESSION_MAX_AGE_SECONDS,
         secureCookies: false,

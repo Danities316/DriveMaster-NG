@@ -36,7 +36,6 @@ export function FirstDayOnboarding({
       ? cache.snapshot
       : undefined;
   if (!snapshot) {
-    if (studentCount || paymentCount) return null;
     return (
       <section className="dm-panel first-day first-day-compact" aria-labelledby="first-day-title">
         <div>
@@ -52,7 +51,7 @@ export function FirstDayOnboarding({
   }
 
   const ready = trainingSetupReadiness(snapshot);
-  if (ready.firstBooking || studentCount > 1 || paymentCount > 0) return null;
+  if (ready.firstBooking) return null;
   const hasStudent = ready.students || studentCount > 0;
   const steps = [
     {

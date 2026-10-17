@@ -79,7 +79,12 @@ function buildStudentDeps(seed: StudentRecord[] = []) {
     updateStudentRecord: async (id, patch) => {
       const existing = students.get(id);
       if (!existing) throw new Error("not found");
-      const updated = { ...existing, ...patch, updatedAt: new Date().toISOString() };
+      const updated = {
+        ...existing,
+        ...patch,
+        version: (existing.version ?? 0) + 1,
+        updatedAt: new Date().toISOString()
+      };
       students.set(id, updated);
       return updated;
     },
@@ -90,6 +95,7 @@ function buildStudentDeps(seed: StudentRecord[] = []) {
 
 function buildApp(studentDeps: StudentDeps) {
   return createApp({
+    securityLimit: async () => {},
     webOrigin: "http://localhost:5173",
     authSecret: AUTH_SECRET,
     sessionMaxAgeSeconds: SESSION_MAX_AGE_SECONDS,
@@ -213,7 +219,7 @@ describe("Student Management routes", () => {
       const res = await request(app)
         .patch(`/api/students/${STUDENT_B1.id}`)
         .set("Cookie", cookie)
-        .send({ name: "Hacked" });
+        .send({ name: "Hacked", expectedVersion: 0 });
 
       expect(res.status).toBe(404);
     });
@@ -280,11 +286,52 @@ describe("Student Management routes", () => {
       const res = await request(app)
         .patch(`/api/students/${STUDENT_A1.id}`)
         .set("Cookie", cookie)
-        .send({ totalTuition: "175000.00" });
+        .send({ totalTuition: "175000.00", expectedVersion: 0 });
 
       expect(res.status).toBe(200);
       expect(res.body.student.totalTuition).toBe("175000.00");
       expect(res.body.student.balanceRemaining).toBe("175000.00");
     });
+  });
+  it("requires a reviewed version and rejects a stale tuition edit", async () => {
+    const cookie = await loginAs(app, OWNER_A);
+    const path = `/api/students/${STUDENT_A1.id}`;
+    expect(
+      (await request(app).patch(path).set("Cookie", cookie).send({ totalTuition: "180000.00" }))
+        .status
+    ).toBe(400);
+    const first = await request(app)
+      .patch(path)
+      .set("Cookie", cookie)
+      .send({ expectedVersion: 0, totalTuition: "180000.00" });
+    expect(first.status).toBe(200);
+    expect(first.body.student.version).toBe(1);
+    const stale = await request(app)
+      .patch(path)
+      .set("Cookie", cookie)
+      .send({ expectedVersion: 0, totalTuition: "190000.00" });
+    expect(stale.status).toBe(409);
+    expect(stale.body.error.code).toBe("STUDENT_CONFLICT");
+  });
+  it("rejects adjustment requests from a different initiating owner before writing", async () => {
+    const cookie = await loginAs(app, OWNER_A);
+    const response = await request(app)
+      .post(`/api/students/${STUDENT_A1.id}/payments/payment/adjustments`)
+      .set("Cookie", cookie)
+      .set("X-Adjustment-User", "other-owner")
+      .send({});
+    expect(response.status).toBe(409);
+    expect(response.body.error.code).toBe("ACCOUNT_CHANGED");
+  });
+  it("accepts the stable UUIDv8 student identity used by resumable CSV imports", async () => {
+    const cookie = await loginAs(app, OWNER_A);
+    const response = await request(app).post("/api/students").set("Cookie", cookie).send({
+      id: "11111111-1111-8111-8111-111111111111",
+      name: "CSV learner",
+      phone: "08012345678",
+      enrollmentDate: "2026-01-01",
+      totalTuition: "100.00"
+    });
+    expect(response.status).toBe(201);
   });
 });

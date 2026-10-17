@@ -28,8 +28,11 @@ import { createSyncRouter } from "./routes/sync.js";
 import { createPublicEnrollmentRouter } from "./training/enrollmentRoutes.js";
 import type { SyncDeps } from "./sync/syncRepository.js";
 import { createPlatformRouter } from "./platform/platformRoutes.js";
+import { securityLimit, type RateConsumer } from "./middleware/securityLimits.js";
+import { isTokenRevoked, revokeToken } from "./auth/sessionRepository.js";
 
 export interface CreateAppOptions {
+  securityLimit?: RateConsumer;
   syncDeps?: SyncDeps;
   /** Raw WEB_ORIGIN env value (comma-separated allowed CORS origins). */
   webOrigin: string;
@@ -60,7 +63,11 @@ export interface CreateAppOptions {
  */
 export function createApp(options: CreateAppOptions): Express {
   const { webOrigin, authSecret, sessionMaxAgeSeconds, secureCookies } = options;
-  const authDeps: AuthDeps = options.authDeps ?? { findUserByPhone: defaultFindUserByPhone };
+  const authDeps: AuthDeps = options.authDeps ?? {
+    findUserByPhone: defaultFindUserByPhone,
+    isTokenRevoked,
+    revokeToken
+  };
   const studentDeps: StudentDeps = options.studentDeps ?? {
     createStudentRecord: defaultCreateStudentRecord,
     findStudentById: defaultFindStudentById,
@@ -83,7 +90,18 @@ export function createApp(options: CreateAppOptions): Express {
   app.use(
     "/api/enroll",
     cors({ origin: "*", credentials: false }),
-    express.json({ limit: "32kb" }),
+    securityLimit("public-enroll", 180, 600000, options.securityLimit),
+    (req, res, next) =>
+      req.method === "POST"
+        ? securityLimit("public-enroll-write", 30, 600000, options.securityLimit)(req, res, next)
+        : next(),
+    (req, res, next) =>
+      express.json({
+        limit:
+          req.method === "POST" && /^\/[^/]+\/[^/]+\/payment-claims\/?$/.test(req.path)
+            ? "3mb"
+            : "32kb"
+      })(req, res, next),
     createPublicEnrollmentRouter()
   );
 
@@ -106,10 +124,19 @@ export function createApp(options: CreateAppOptions): Express {
   app.use(express.json());
 
   app.use("/api", healthRouter);
-  app.use("/api/platform", createPlatformRouter({ authSecret, secureCookies }));
+  app.use(
+    "/api/platform",
+    createPlatformRouter({ authSecret, secureCookies, securityLimit: options.securityLimit })
+  );
   app.use(
     "/api/auth",
-    createAuthRouter({ authSecret, sessionMaxAgeSeconds, authDeps, secureCookies })
+    createAuthRouter({
+      authSecret,
+      sessionMaxAgeSeconds,
+      authDeps,
+      secureCookies,
+      securityLimit: options.securityLimit
+    })
   );
   app.use(
     "/api/students",

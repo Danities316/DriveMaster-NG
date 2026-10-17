@@ -37,6 +37,9 @@ export interface CreateStudentRequest {
 
 export type UpdateStudentRequest = Partial<Omit<CreateStudentRequest, "id">>;
 
+/** Direct HTTP edits must name the version the editor reviewed. Offline sync carries it in its envelope. */
+export type UpdateStudentOnServerRequest = UpdateStudentRequest & { expectedVersion: number };
+
 export interface StudentListQuery {
   /** Matches against student name or phone (case-insensitive, partial). */
   search?: string;

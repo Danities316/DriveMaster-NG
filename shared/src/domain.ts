@@ -104,6 +104,11 @@ export interface Student {
 
 /** Append-only financial record — no update/delete contract exists. */
 export interface Payment {
+  entryType?: "PAYMENT" | "REVERSAL" | "REFUND" | "REFUND_REVERSAL";
+  originalPaymentId?: string | null;
+  adjustmentId?: string | null;
+  reason?: string | null;
+  recordedById?: string | null;
   id: string;
   schoolId: string;
   studentId: string;

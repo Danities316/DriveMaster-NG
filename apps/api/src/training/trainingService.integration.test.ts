@@ -1,11 +1,12 @@
 import request from "supertest";
 import { createApp } from "../app.js";
 import { createSessionToken } from "../auth/token.js";
-import { randomUUID } from "node:crypto";
+import { randomUUID, randomInt } from "node:crypto";
 import { PrismaClient } from "@prisma/client";
 import { beforeAll, beforeEach, afterAll, describe, expect, it } from "vitest";
 import { executeTraining, trainingSnapshot } from "./trainingService.js";
 import {
+  trainingSummary,
   DEFAULT_SCHOOL_RULES,
   DEFAULT_ENROLLMENT_SETTINGS,
   type TrainingCommand,
@@ -1021,7 +1022,7 @@ describe.skipIf(!url)("training PostgreSQL workflow", () => {
     };
     await request(app).get("/api/training/snapshot").set({ Cookie: headers.Cookie }).expect(409);
     const studentId = randomUUID(),
-      phone = "08012345670";
+      phone = `080${String(randomInt(0, 100000000)).padStart(8, "0")}`;
     await client.student.create({
       data: {
         id: studentId,
@@ -1039,7 +1040,7 @@ describe.skipIf(!url)("training PostgreSQL workflow", () => {
       .expect(201);
     const account = await client.user.findFirstOrThrow({ where: { studentId } });
     expect(account.name).toBe("New student");
-    expect(account.phone).toBe("+2348012345670");
+    expect(account.phone).toBe(`+234${phone.slice(1)}`);
     expect(account.passwordHash).not.toBe("Private-pass-123");
     const login = await request(app)
       .post("/api/auth/login")
@@ -1081,5 +1082,181 @@ describe.skipIf(!url)("training PostgreSQL workflow", () => {
       where: { schoolId, entity: "training_account" }
     });
     expect(JSON.stringify(audits)).not.toContain("Private-pass-123");
+  });
+  it("protects reload access and payment retries while loading receipt metadata separately", async () => {
+    const secret = "resume-test-secret";
+    const app = createApp({
+      webOrigin: "http://localhost",
+      authSecret: secret,
+      sessionMaxAgeSeconds: 3600,
+      secureCookies: false
+    });
+    await send("ENROLLMENT_SETTINGS", randomUUID(), {
+      ...DEFAULT_ENROLLMENT_SETTINGS,
+      enabled: true,
+      packageIds: [packageId],
+      showBankTransfer: true,
+      allowReceiptUpload: true,
+      bankName: "Test bank",
+      accountName: "Test school",
+      accountNumber: "0123456789",
+      reason: "Open registration"
+    });
+    const input = {
+      id: randomUUID(),
+      packageId,
+      packageVersion: 0,
+      settingsVersion: 0,
+      rulesVersion: -1,
+      details: { firstName: "Private", lastName: "Learner", phone: "08012345678" },
+      consent: true,
+      website: ""
+    };
+    const token = "ab".repeat(32),
+      wrong = "cd".repeat(32);
+    const path = `/api/enroll/${schoolId}/${input.id}`;
+    await request(app)
+      .post(`/api/enroll/${schoolId}`)
+      .set("X-Enrollment-Token", token)
+      .send(input)
+      .expect(201);
+    await request(app).get(`${path}/resume`).expect(403);
+    await request(app).get(`${path}/resume`).set("X-Enrollment-Token", wrong).expect(403);
+    const resumed = await request(app)
+      .get(`${path}/resume`)
+      .set("X-Enrollment-Token", token)
+      .expect(200);
+    expect(resumed.headers["cache-control"]).toBe("no-store");
+    expect(resumed.body).toEqual({
+      received: true,
+      reference: input.id,
+      status: "PENDING_PAYMENT",
+      paymentReport: null
+    });
+    const row = await client.enrollmentApplication.findUniqueOrThrow({ where: { id: input.id } });
+    expect(row.resumeTokenHash).not.toBe(token);
+    expect(row.resumeTokenHash).toHaveLength(64);
+    await request(app).post(`/api/enroll/${schoolId}`).send(input).expect(403);
+    await request(app)
+      .post(`/api/enroll/${schoolId}`)
+      .set("X-Enrollment-Token", token)
+      .send(input)
+      .expect(201);
+    const image = Buffer.from([0xff, 0xd8, 0xff, 0x01]);
+    const claim = {
+      id: randomUUID(),
+      amount: "1000",
+      transferDate: "2026-01-01",
+      senderName: "Private sender",
+      receiptDataUrl: `data:image/jpeg;base64,${image.toString("base64")}`
+    };
+    await request(app).post(`${path}/payment-claims`).send(claim).expect(403);
+    await request(app)
+      .post(`${path}/payment-claims`)
+      .set("X-Enrollment-Token", token)
+      .send(claim)
+      .expect(201);
+    await request(app)
+      .post(`${path}/payment-claims`)
+      .set("X-Enrollment-Token", token)
+      .send(claim)
+      .expect(201);
+    await request(app)
+      .post(`${path}/payment-claims`)
+      .set("X-Enrollment-Token", wrong)
+      .send(claim)
+      .expect(403);
+    expect(await client.paymentClaim.count({ where: { applicationId: input.id } })).toBe(1);
+    const after = await request(app)
+      .get(`${path}/resume`)
+      .set("X-Enrollment-Token", token)
+      .expect(200);
+    expect(after.body.paymentReport).toEqual({ id: claim.id, status: "WAITING" });
+    const user = await client.user.findUniqueOrThrow({ where: { id: ownerId } });
+    const headers = {
+      Cookie:
+        "dm_session=" +
+        createSessionToken(
+          { sub: ownerId, schoolId, role: user.role, name: user.name, phone: user.phone },
+          secret,
+          3600
+        ),
+      "X-Training-User": ownerId,
+      "X-Training-School": schoolId
+    };
+    const list = await request(app).get("/api/training/applications").set(headers).expect(200);
+    expect(list.body.applications[0]).not.toHaveProperty("resumeTokenHash");
+    expect(list.body.applications[0]).not.toHaveProperty("resumeExpiresAt");
+    expect(list.body.applications[0].paymentClaims[0]).toMatchObject({
+      id: claim.id,
+      hasReceipt: true
+    });
+    expect(list.body.applications[0].paymentClaims[0]).not.toHaveProperty("receipt");
+    await request(app)
+      .get(`/api/training/applications/payment-claims/${claim.id}/receipt`)
+      .expect(401);
+    const receipt = await request(app)
+      .get(`/api/training/applications/payment-claims/${claim.id}/receipt`)
+      .set(headers)
+      .expect(200);
+    expect(receipt.body).toEqual(image);
+    await client.enrollmentApplication.update({
+      where: { id: input.id },
+      data: { resumeExpiresAt: new Date(0) }
+    });
+    await request(app).get(`${path}/resume`).set("X-Enrollment-Token", token).expect(403);
+    await request(app)
+      .post(`${path}/payment-claims`)
+      .set("X-Enrollment-Token", token)
+      .send(claim)
+      .expect(403);
+  });
+  it("keeps indexed snapshots equal to full-history accounting for shared outings and expenses", async () => {
+    await book(studentIds.slice(0, 2));
+    await client.trainingRecord.create({
+      data: {
+        id: randomUUID(),
+        schoolId,
+        kind: "expense",
+        data: {
+          basis: "RECORDED",
+          allocations: [
+            { studentId: studentIds[0], amount: "100.00" },
+            { studentId: studentIds[2], amount: "200.00" }
+          ],
+          reason: "Shared synthetic expense"
+        }
+      }
+    });
+    await client.payment.createMany({
+      data: studentIds.slice(0, 2).map((studentId, i) => ({
+        id: randomUUID(),
+        schoolId,
+        studentId,
+        amount: String((i + 1) * 1000),
+        paymentDate: new Date("2026-01-01")
+      }))
+    });
+    const snapshot = await trainingSnapshot(schoolId, ownerId);
+    for (const enrollment of snapshot.enrollments) {
+      const student = snapshot.students.find((s) => s.id === enrollment.data.studentId)!;
+      const payments = await client.payment.findMany({
+        where: { schoolId, studentId: student.id }
+      });
+      const expected = trainingSummary(
+        { ...enrollment.data, price: student.totalTuition },
+        student.name,
+        String(payments.reduce((total, p) => total + Number(p.amount), 0)) + ".00",
+        snapshot.outings.map((o) => o.data),
+        snapshot.settings?.data.fuelPerStudent ?? "1500.00",
+        "0.00",
+        snapshot.expenses?.map((e) => e.data)
+      );
+      if (expected.remaining > 0) {
+        delete expected.expectedMargin;
+        delete expected.estimatedRemainingCost;
+      }
+      expect(snapshot.summaries.find((s) => s.studentId === student.id)).toEqual(expected);
+    }
   });
 });

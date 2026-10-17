@@ -1,9 +1,11 @@
 import { useState, type FormEvent } from "react";
-import type { AuthenticatedUser } from "@drivemaster/shared";
-import { login, AuthError } from "../lib/auth";
+import type { AuthenticatedUser, OwnerVerificationStatus } from "@drivemaster/shared";
+import { login, AuthError, VerificationRequiredError } from "../lib/auth";
+import { PasswordResetForm } from "./PasswordResetForm";
 
 interface LoginFormProps {
   onSuccess: (user: AuthenticatedUser) => void;
+  onVerification?: (status: OwnerVerificationStatus) => void;
 }
 
 /**
@@ -21,11 +23,12 @@ interface LoginFormProps {
  *   - Errors are the exact plain-language string the API returns (e.g.
  *     "Phone number or password is incorrect."), never a technical one.
  */
-export function LoginForm({ onSuccess }: LoginFormProps) {
+export function LoginForm({ onSuccess, onVerification }: LoginFormProps) {
   const [phone, setPhone] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [recovering, setRecovering] = useState(false);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>): Promise<void> {
     event.preventDefault();
@@ -35,6 +38,10 @@ export function LoginForm({ onSuccess }: LoginFormProps) {
       const user = await login(phone, password);
       onSuccess(user);
     } catch (err) {
+      if (err instanceof VerificationRequiredError && onVerification) {
+        onVerification(err.verification);
+        return;
+      }
       setError(
         err instanceof AuthError
           ? err.message
@@ -45,6 +52,7 @@ export function LoginForm({ onSuccess }: LoginFormProps) {
     }
   }
 
+  if (recovering) return <PasswordResetForm onBack={() => setRecovering(false)} />;
   return (
     <form onSubmit={handleSubmit} className="mx-auto flex w-full max-w-sm flex-col gap-4 p-4">
       <div className="flex flex-col gap-1">
@@ -93,6 +101,14 @@ export function LoginForm({ onSuccess }: LoginFormProps) {
         className="min-h-[48px] rounded-lg bg-brand px-6 py-3 text-lg font-medium text-brand-ink transition hover:bg-brand-hover disabled:opacity-60"
       >
         {isSubmitting ? "Logging in..." : "Log in"}
+      </button>
+      <button
+        type="button"
+        className="min-h-[48px]"
+        disabled={isSubmitting}
+        onClick={() => setRecovering(true)}
+      >
+        Forgot password?
       </button>
     </form>
   );

@@ -4,6 +4,7 @@ import type { UserRole } from "@drivemaster/shared";
 export interface AuthenticatedIdentity {
   userId: string;
   schoolId: string;
+  schoolName?: string;
   role: UserRole;
   name: string;
   phone: string;

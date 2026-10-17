@@ -16,14 +16,19 @@ export async function prepareLocalSchool(user: AuthenticatedUser): Promise<void>
         db.mileageLogs.toArray(),
         db.sessionBookings.toArray(),
         db.trainingCache.toArray(),
-        db.trainingQueue.toArray()
+        db.trainingQueue.toArray(),
+        db.pendingAdjustments.toArray()
       ])
     ).flat();
     const foreignData = records.some((record) => record.schoolId !== user.schoolId);
     if ((previous && previous !== user.schoolId) || foreignData) {
-      if ((await db.outbox.count()) || (await db.trainingQueue.count())) {
+      if (
+        (await db.outbox.count()) ||
+        (await db.trainingQueue.count()) ||
+        (await db.pendingAdjustments.count())
+      ) {
         throw new Error(
-          "This device has saved work waiting for another school. Sign in to that school and send its saved records before switching."
+          "This device has saved work waiting for another school. Sign in to that school and send its saved records and resolve any pending payment adjustments before switching."
         );
       }
       for (const table of db.tables) await table.clear();

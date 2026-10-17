@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { createHash, randomUUID } from "node:crypto";
+import { createHash, randomUUID, timingSafeEqual } from "node:crypto";
 import { z, ZodError } from "zod";
 import type { Prisma } from "@prisma/client";
 import {
@@ -103,32 +103,48 @@ function routeError(error: unknown) {
     );
   return error;
 }
+function resumeHash(token: string | undefined) {
+  if (!token) return null; // Legacy submissions retain their existing flow, without resume access.
+  if (!/^[a-f0-9]{64}$/.test(token)) fail("Invalid registration access. Contact the school.", 403);
+  return createHash("sha256").update(token!).digest("hex");
+}
+function requireResume(
+  application: { resumeTokenHash: string | null; resumeExpiresAt: Date | null },
+  token: string | undefined,
+  required = false
+) {
+  if (!application.resumeTokenHash && !required) return;
+  const supplied = resumeHash(token);
+  if (
+    !supplied ||
+    !application.resumeTokenHash ||
+    !application.resumeExpiresAt ||
+    application.resumeExpiresAt <= new Date() ||
+    !timingSafeEqual(Buffer.from(supplied, "hex"), Buffer.from(application.resumeTokenHash, "hex"))
+  )
+    fail(
+      "Registration access is unavailable or expired. Contact the school with your reference.",
+      403
+    );
+}
 export function createPublicEnrollmentRouter() {
   const router = Router();
-  const traffic = new Map<string, { count: number; until: number }>();
-  router.use((req, res, next) => {
+  router.use(async (req, res, next) => {
     res.set("Cache-Control", "no-store");
-    const now = Date.now();
-    for (const [key, entry] of traffic) if (entry.until <= now) traffic.delete(key);
-    const key = `${req.method}:${req.ip}`;
-    let entry = traffic.get(key);
-    if (!entry) {
-      if (traffic.size >= 10000)
-        return next(new KnownApiError("Please try again later.", 429, "RATE_LIMIT"));
-      entry = { count: 0, until: now + 600000 };
-      traffic.set(key, entry);
+    try {
+      const schoolId = req.path.split("/")[1];
+      if (!schoolId || schoolId.length > 100)
+        return next(new KnownApiError("School not available.", 404));
+      const school = await getPrismaClient().school.findUnique({
+        where: { id: schoolId },
+        select: { status: true }
+      });
+      if (!school || ["SUSPENDED", "CLOSED"].includes(school.status))
+        return next(new KnownApiError("School not available. Contact the school.", 404));
+      next();
+    } catch (error) {
+      next(error);
     }
-    if (++entry.count > (req.method === "POST" ? 30 : 150)) {
-      res.set("Retry-After", "600");
-      return next(
-        new KnownApiError(
-          "Too many requests. Please wait a few minutes or contact the school.",
-          429,
-          "RATE_LIMIT"
-        )
-      );
-    }
-    next();
   });
   router.get("/:schoolId", async (req, res, next) => {
     try {
@@ -170,6 +186,31 @@ export function createPublicEnrollmentRouter() {
       next(routeError(error));
     }
   });
+  router.get("/:schoolId/:applicationId/resume", async (req, res, next) => {
+    try {
+      const schoolId = z.string().max(100).parse(req.params["schoolId"]);
+      const id = z.string().uuid().parse(req.params["applicationId"]);
+      const application = await getPrismaClient().enrollmentApplication.findFirst({
+        where: { id, schoolId },
+        select: { id: true, status: true, resumeTokenHash: true, resumeExpiresAt: true }
+      });
+      if (!application) fail("Registration not found.", 404);
+      requireResume(application!, req.get("X-Enrollment-Token"), true);
+      const report = await getPrismaClient().paymentClaim.findFirst({
+        where: { schoolId, applicationId: id },
+        orderBy: [{ createdAt: "desc" }, { id: "asc" }],
+        select: { id: true, status: true }
+      });
+      res.json({
+        received: true,
+        reference: id,
+        status: application!.status,
+        paymentReport: report
+      });
+    } catch (error) {
+      next(routeError(error));
+    }
+  });
   router.post("/:schoolId", async (req, res, next) => {
     try {
       const schoolId = z.string().max(100).parse(req.params["schoolId"]);
@@ -185,6 +226,7 @@ export function createPublicEnrollmentRouter() {
           website: z.string().max(0).optional()
         })
         .parse(req.body);
+      const tokenHash = resumeHash(req.get("X-Enrollment-Token"));
       const details = parseApplicant(input.details);
       const hash = createHash("sha256")
         .update(JSON.stringify({ schoolId, ...input, details }))
@@ -193,6 +235,7 @@ export function createPublicEnrollmentRouter() {
         await tx.$queryRaw`SELECT id FROM schools WHERE id = ${schoolId} FOR UPDATE`;
         const previous = await tx.enrollmentApplication.findUnique({ where: { id: input.id } });
         if (previous) {
+          requireResume(previous, req.get("X-Enrollment-Token"));
           if (previous.schoolId !== schoolId || previous.requestHash !== hash)
             fail(
               "This submission reference was already used. Contact the school before submitting again.",
@@ -233,6 +276,8 @@ export function createPublicEnrollmentRouter() {
         await tx.enrollmentApplication.create({
           data: {
             id: input.id,
+            resumeTokenHash: tokenHash,
+            resumeExpiresAt: tokenHash ? new Date(Date.now() + 30 * 86400000) : null,
             schoolId,
             name: nameOf(details),
             phone: details.phone,
@@ -301,6 +346,11 @@ export function createPublicEnrollmentRouter() {
         .digest("hex");
       await getPrismaClient().$transaction(async (tx) => {
         await tx.$queryRaw`SELECT id FROM schools WHERE id = ${schoolId} FOR UPDATE`;
+        const application = await tx.enrollmentApplication.findFirst({
+          where: { id: applicationId, schoolId }
+        });
+        if (!application) fail("This registration is not available.", 404);
+        requireResume(application!, req.get("X-Enrollment-Token"));
         const previous = await tx.paymentClaim.findUnique({ where: { id: input.id } });
         if (previous) {
           if (
@@ -311,9 +361,6 @@ export function createPublicEnrollmentRouter() {
             fail("This payment report reference was already used.", 409);
           return;
         }
-        const application = await tx.enrollmentApplication.findFirst({
-          where: { id: applicationId, schoolId }
-        });
         if (!application || application.status === "REJECTED")
           fail("This registration is not available.", 404);
         const config = await tx.trainingRecord.findFirst({
@@ -392,7 +439,7 @@ export function createEnrollmentReviewRouter() {
           senderName: true,
           reference: true,
           status: true,
-          receipt: true,
+          receiptMime: true,
           createdAt: true,
           reviewedAt: true,
           reviewNote: true
@@ -400,21 +447,29 @@ export function createEnrollmentReviewRouter() {
       });
       res.json({
         hasMore: found.length > 100,
-        applications: rows.map(({ requestHash: _hash, details, ...row }) => ({
-          ...row,
-          ...(req.auth!.role === "OWNER" ? { details } : {}),
-          paid: sumMoney(
-            payments.filter((p) => p.studentId === row.studentId).map((p) => p.amount.toFixed(2))
-          ),
-          paymentClaims: claims
-            .filter((claim) => claim.applicationId === row.id)
-            .map((claim) => ({
-              ...claim,
-              amount: claim.amount.toFixed(2),
-              hasReceipt: !!claim.receipt,
-              receipt: undefined
-            }))
-        }))
+        applications: rows.map(
+          ({
+            requestHash: _hash,
+            resumeTokenHash: _token,
+            resumeExpiresAt: _expiry,
+            details,
+            ...row
+          }) => ({
+            ...row,
+            ...(req.auth!.role === "OWNER" ? { details } : {}),
+            paid: sumMoney(
+              payments.filter((p) => p.studentId === row.studentId).map((p) => p.amount.toFixed(2))
+            ),
+            paymentClaims: claims
+              .filter((claim) => claim.applicationId === row.id)
+              .map((claim) => ({
+                ...claim,
+                amount: claim.amount.toFixed(2),
+                hasReceipt: !!claim.receiptMime,
+                receiptMime: undefined
+              }))
+          })
+        )
       });
     } catch (error) {
       next(routeError(error));

@@ -27,11 +27,14 @@ export async function findUserByPhone(phone: string): Promise<UserRecordForAuth 
   return {
     id: user.id,
     schoolId: user.schoolId,
+    schoolName: user.school.name,
     name: user.name,
     phone: user.phone,
     passwordHash: user.passwordHash,
     role: user.role as UserRole,
     isActive: user.isActive,
+    phoneVerificationRequired: user.phoneVerificationRequired,
+    sessionVersion: user.sessionVersion,
     schoolStatus: user.school.status
   };
 }

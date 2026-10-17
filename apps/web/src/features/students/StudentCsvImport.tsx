@@ -1,6 +1,5 @@
 import { useState, type ChangeEvent } from "react";
-import { isValidStoredMoney, isValidDate } from "@drivemaster/shared";
-import { createStudentOffline } from "./studentService";
+import { normalizeImportRow, importStudentRow, parseStudentCsv } from "./studentImport";
 
 type Row = {
   name: string;
@@ -12,13 +11,6 @@ type Row = {
 type CheckedRow = Row & { error?: string };
 const headers = ["name", "phone", "licenseNumber", "enrollmentDate", "totalTuition"] as const;
 
-function parseCsv(text: string): string[][] {
-  return text
-    .trim()
-    .split(/\r?\n/)
-    .filter(Boolean)
-    .map((line) => line.split(",").map((cell) => cell.trim().replace(/^"|"$/g, "")));
-}
 function downloadTemplate() {
   const blob = new Blob([`${headers.join(",")}\nAda Example,08012345678,,2026-10-06,0.00\n`], {
     type: "text/csv"
@@ -37,23 +29,30 @@ export function StudentCsvImport({ schoolId }: { schoolId: string }) {
   async function readFile(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
     if (!file) return;
-    const lines = parseCsv(await file.text());
+    setRows([]);
+    let lines: string[][];
+    try {
+      lines = parseStudentCsv(await file.text());
+    } catch (e) {
+      setMessage((e as Error).message);
+      setRows([]);
+      return;
+    }
     const header = lines.shift()?.map((value) => value.toLowerCase());
-    if (!header || headers.some((name) => !header.includes(name))) {
+    if (!header || headers.some((name) => !header.includes(name.toLowerCase()))) {
       setMessage("Use the DriveMaster template columns, then upload the file again.");
       return;
     }
     const checked = lines.map((cells): CheckedRow => {
       const row = Object.fromEntries(
-        headers.map((name) => [name, cells[header.indexOf(name)] ?? ""])
+        headers.map((name) => [name, cells[header.indexOf(name.toLowerCase())] ?? ""])
       ) as Row;
-      if (!row.name.trim()) return { ...row, error: "Name is missing" };
-      if (row.phone.trim().length < 7)
-        return { ...row, error: "Phone number is missing or too short" };
-      if (!isValidDate(row.enrollmentDate)) return { ...row, error: "Use a date like 2026-10-06" };
-      if (!isValidStoredMoney(row.totalTuition || "0.00"))
-        return { ...row, error: "Tuition must be a number" };
-      return { ...row, totalTuition: row.totalTuition || "0.00" };
+      try {
+        normalizeImportRow({ ...row, totalTuition: row.totalTuition || "0.00" });
+        return { ...row, totalTuition: row.totalTuition || "0.00" };
+      } catch (e) {
+        return { ...row, error: (e as Error).message };
+      }
     });
     setRows(checked);
     setMessage(null);
@@ -63,20 +62,18 @@ export function StudentCsvImport({ schoolId }: { schoolId: string }) {
     let added = 0;
     try {
       for (const row of rows.filter((item) => !item.error)) {
-        await createStudentOffline(
-          {
-            ...row,
-            totalTuition: row.totalTuition || "0.00",
-            licenseNumber: row.licenseNumber || null
-          },
-          schoolId
-        );
+        await importStudentRow(schoolId, row);
+        setRows((current) => current.filter((item) => item !== row));
         added++;
       }
       setMessage(
-        `${added} student${added === 1 ? "" : "s"} added. You can correct the remaining rows and upload them later.`
+        `${added} row${added === 1 ? "" : "s"} processed. Identical previously imported rows are kept without duplicates. You can correct the remaining rows and upload them later.`
       );
       setRows((current) => current.filter((row) => row.error));
+    } catch (e) {
+      setMessage(
+        `${added} rows processed. Import paused: ${(e as Error).message} Retry the remaining rows or re-upload the file; saved rows will not be duplicated.`
+      );
     } finally {
       setSaving(false);
     }
@@ -88,7 +85,8 @@ export function StudentCsvImport({ schoolId }: { schoolId: string }) {
           <p className="dm-eyebrow">QUICK SETUP</p>
           <h2 id="student-import-title">Add many students at once</h2>
           <p>
-            Use an Excel or Google Sheets file saved as CSV. Existing records are not overwritten.
+            Use an Excel or Google Sheets file saved as CSV. Re-uploading identical rows is safe. To
+            change an existing student, edit their record instead.
           </p>
         </div>
         <button type="button" className="dm-secondary" onClick={downloadTemplate}>
@@ -97,7 +95,12 @@ export function StudentCsvImport({ schoolId }: { schoolId: string }) {
       </div>
       <label className="dm-secondary student-import-file">
         Choose CSV file
-        <input type="file" accept=".csv,text/csv" onChange={(event) => void readFile(event)} />
+        <input
+          type="file"
+          disabled={saving}
+          accept=".csv,text/csv"
+          onChange={(event) => void readFile(event)}
+        />
       </label>
       {message ? (
         <p role="status" className="student-import-message">

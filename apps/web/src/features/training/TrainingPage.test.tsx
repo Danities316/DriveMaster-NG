@@ -160,7 +160,9 @@ it("creates student access from an eligible registered student without duplicate
   });
   render(<TrainingPage user={owner} initialTab="setup" />);
   fireEvent.click(await screen.findByRole("button", { name: "Open People" }));
-  fireEvent.click(screen.getByText("Create instructor or student access", { selector: "summary" }));
+  fireEvent.click(
+    screen.getByText("Create instructor, receptionist or student access", { selector: "summary" })
+  );
   expect(screen.getByLabelText("Student record (for student accounts)")).toHaveTextContent(
     "Eligible Student · 08012345678"
   );

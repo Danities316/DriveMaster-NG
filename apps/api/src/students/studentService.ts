@@ -10,6 +10,7 @@ import { KnownApiError } from "../middleware/errorHandler.js";
  * adds the computed financial fields for the client-facing shape.
  */
 export interface StudentRecord {
+  version?: number;
   id: string;
   schoolId: string;
   name: string;
@@ -45,7 +46,12 @@ export interface ListStudentsQuery {
  * is available (see studentRepository.ts for why that matters here).
  */
 export interface StudentDeps {
-  createStudentRecord: (schoolId: string, input: CreateStudentInput) => Promise<StudentRecord>;
+  createStudentRecord: (
+    schoolId: string,
+    input: CreateStudentInput,
+    actorId?: string,
+    expectedVersion?: number
+  ) => Promise<StudentRecord>;
   findStudentById: (id: string, schoolId: string) => Promise<StudentRecord | null>;
   findStudentsBySchool: (
     schoolId: string,
@@ -54,7 +60,9 @@ export interface StudentDeps {
   updateStudentRecord: (
     id: string,
     patch: UpdateStudentInput,
-    schoolId: string
+    schoolId: string,
+    actorId?: string,
+    expectedVersion?: number
   ) => Promise<StudentRecord>;
   /** Sum of Payment.amount per student id. Missing keys mean "no payments yet". */
   sumPaymentsByStudentIds: (
@@ -74,10 +82,11 @@ function toStudentWithBalance(record: StudentRecord, amountPaid: string): Studen
 export async function createStudent(
   schoolId: string,
   input: CreateStudentInput,
-  deps: StudentDeps
+  deps: StudentDeps,
+  actorId?: string
 ): Promise<StudentWithBalance> {
   const existing = await deps.findStudentById(input.id, schoolId);
-  const record = existing ?? (await deps.createStudentRecord(schoolId, input));
+  const record = existing ?? (await deps.createStudentRecord(schoolId, input, actorId));
   if (
     record.schoolId !== schoolId ||
     record.name !== input.name ||
@@ -138,13 +147,33 @@ export async function updateStudent(
   schoolId: string,
   studentId: string,
   patch: UpdateStudentInput,
-  deps: StudentDeps
+  deps: StudentDeps,
+  actorId?: string,
+  expectedVersion?: number
 ): Promise<StudentLookupResult> {
   const existing = await deps.findStudentById(studentId, schoolId);
   if (!existing || existing.schoolId !== schoolId) {
     return { ok: false, reason: "NOT_FOUND" };
   }
-  const updated = await deps.updateStudentRecord(studentId, patch, schoolId);
+  if (!Number.isInteger(expectedVersion) || expectedVersion! < 0)
+    throw new KnownApiError(
+      "Reload the student and submit the version you reviewed.",
+      400,
+      "VERSION_REQUIRED"
+    );
+  if ((existing.version ?? 0) !== expectedVersion)
+    throw new KnownApiError(
+      "This student changed elsewhere. Reload before editing.",
+      409,
+      "STUDENT_CONFLICT"
+    );
+  const updated = await deps.updateStudentRecord(
+    studentId,
+    patch,
+    schoolId,
+    actorId,
+    expectedVersion
+  );
   const sums = await deps.sumPaymentsByStudentIds([updated.id], schoolId);
   return { ok: true, student: toStudentWithBalance(updated, sums[updated.id] ?? ZERO_MONEY) };
 }

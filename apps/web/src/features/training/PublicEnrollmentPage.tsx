@@ -13,7 +13,13 @@ import { INTAKE_FIELDS, type PublicEnrollmentInfo } from "@drivemaster/shared";
 import { ApplicantFields } from "./ApplicantFields";
 import { applicantSteps, emptyApplicant } from "./applicantForm";
 import { naira } from "../dashboard/dashboardData";
-import { registrationId } from "./registrationId";
+import {
+  readEnrollmentResume,
+  newEnrollmentResume,
+  saveEnrollmentResume,
+  clearEnrollmentResume,
+  type EnrollmentResume
+} from "./enrollmentResume";
 import "./training.css";
 
 const stepNames = ["About you", "Address & next of kin", "Licence details", "Package & review"];
@@ -48,8 +54,19 @@ export function PublicEnrollmentPage({ schoolId }: { schoolId: string }) {
   const [copied, setCopied] = useState(false);
   const [receiptDataUrl, setReceiptDataUrl] = useState("");
   const [website, setWebsite] = useState("");
-  const requestId = useRef(registrationId());
-  const paymentRequestId = useRef(registrationId());
+  const [resumeError, setResumeError] = useState("");
+  const [access] = useState(() => {
+    try {
+      return readEnrollmentResume(schoolId) ?? newEnrollmentResume();
+    } catch {
+      return null;
+    }
+  });
+  const accessRef = useRef<EnrollmentResume | null>(access);
+  const requestId = useRef(access?.id ?? "");
+  const paymentRequestId = useRef(access?.paymentId ?? "");
+  const [registrationStatus, setRegistrationStatus] = useState("PENDING_PAYMENT");
+  const [paymentStatus, setPaymentStatus] = useState("WAITING");
   const loadNumber = useRef(0);
   const base = import.meta.env["VITE_API_BASE_URL"] ?? "/api";
 
@@ -58,6 +75,39 @@ export function PublicEnrollmentPage({ schoolId }: { schoolId: string }) {
     setError("");
     setLoading(true);
     try {
+      const saved = readEnrollmentResume(schoolId);
+      if (saved) {
+        accessRef.current = saved;
+        requestId.current = saved.id;
+        paymentRequestId.current = saved.paymentId;
+        const resumeResponse = await fetch(
+          `${base}/enroll/${encodeURIComponent(schoolId)}/${saved.id}/resume`,
+          {
+            credentials: "omit",
+            cache: "no-store",
+            signal: AbortSignal.timeout(20000),
+            headers: { "X-Enrollment-Token": saved.token }
+          }
+        );
+        const resumed = await resumeResponse.json();
+        if (resumeResponse.ok) {
+          if (resumed.reference !== saved.id || resumed.received !== true)
+            throw new Error("Unexpected registration response. Contact the school.");
+          if (current === loadNumber.current) {
+            setReceived(true);
+            setRegistrationStatus(resumed.status);
+            setPaymentSent(!!resumed.paymentReport);
+            setPaymentStatus(resumed.paymentReport?.status ?? "WAITING");
+          }
+        } else if (resumeResponse.status !== 404)
+          throw new Error(
+            resumed.error?.message ?? "Could not resume registration. Contact the school."
+          );
+      }
+      if (!accessRef.current)
+        throw new Error(
+          "Saved registration access cannot be read. Contact the school before registering again."
+        );
       const response = await fetch(`${base}/enroll/${encodeURIComponent(schoolId)}`, {
         credentials: "omit",
         cache: "no-store",
@@ -96,10 +146,16 @@ export function PublicEnrollmentPage({ schoolId }: { schoolId: string }) {
     }
     setBusy(true);
     try {
+      if (!accessRef.current)
+        throw new Error("Registration access is unavailable. Contact the school.");
+      saveEnrollmentResume(schoolId, accessRef.current);
       const response = await fetch(`${base}/enroll/${encodeURIComponent(schoolId)}`, {
         method: "POST",
         credentials: "omit",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          "X-Enrollment-Token": accessRef.current!.token
+        },
         signal: AbortSignal.timeout(20000),
         body: JSON.stringify({
           id: requestId.current,
@@ -130,12 +186,18 @@ export function PublicEnrollmentPage({ schoolId }: { schoolId: string }) {
     setPaymentBusy(true);
     setError("");
     try {
+      if (!accessRef.current)
+        throw new Error("Registration access is unavailable. Contact the school.");
+      saveEnrollmentResume(schoolId, accessRef.current);
       const response = await fetch(
         `${base}/enroll/${encodeURIComponent(schoolId)}/${requestId.current}/payment-claims`,
         {
           method: "POST",
           credentials: "omit",
-          headers: { "Content-Type": "application/json" },
+          headers: {
+            "Content-Type": "application/json",
+            "X-Enrollment-Token": accessRef.current!.token
+          },
           signal: AbortSignal.timeout(20000),
           body: JSON.stringify({
             id: paymentRequestId.current,
@@ -150,6 +212,7 @@ export function PublicEnrollmentPage({ schoolId }: { schoolId: string }) {
       const result = await response.json();
       if (!response.ok) throw new Error(result.error?.message ?? "Unable to report payment.");
       setPaymentSent(true);
+      setPaymentStatus("WAITING");
     } catch (cause) {
       setError(friendlyError(cause, true));
     } finally {
@@ -246,115 +309,173 @@ export function PublicEnrollmentPage({ schoolId }: { schoolId: string }) {
                 Keep this reference. This is not a payment receipt or a driver’s licence
                 application.
               </p>
-              {info?.settings.showBankTransfer && !paymentSent && (
-                <section className="enroll-payment-card">
-                  <p className="dm-eyebrow">PAY DIRECTLY TO THE SCHOOL</p>
-                  <h3>Make your bank transfer</h3>
-                  <p>
-                    Transfer to the account below. Your payment will be added only after the school
-                    confirms that the money entered its account.
+              <p>
+                Keep this browser's saved access to return to this registration. Private applicant
+                details are not stored here.
+              </p>
+              {registrationStatus === "REJECTED" && (
+                <p>
+                  The school marked this registration as rejected. Contact the school before making
+                  payment.
+                </p>
+              )}
+              {error &&
+                (!info?.settings.showBankTransfer ||
+                  paymentSent ||
+                  registrationStatus === "REJECTED") && (
+                  <p role="alert" className="enroll-error">
+                    {error}
                   </p>
-                  <dl>
-                    <div>
-                      <dt>Bank</dt>
-                      <dd>{info.settings.bankName}</dd>
-                    </div>
-                    <div>
-                      <dt>Account name</dt>
-                      <dd>{info.settings.accountName}</dd>
-                    </div>
-                    <div className="enroll-account-number">
-                      <dt>Account number</dt>
-                      <dd>{info.settings.accountNumber}</dd>
-                    </div>
-                  </dl>
-                  <button
-                    type="button"
-                    className="dm-secondary"
-                    onClick={() =>
-                      void navigator.clipboard
-                        .writeText(info.settings.accountNumber)
-                        .then(() => setCopied(true))
-                    }
-                  >
-                    <Copy size={16} /> {copied ? "Account number copied" : "Copy account number"}
-                  </button>
-                  {info.settings.paymentInstructions && (
-                    <p className="enroll-payment-note">{info.settings.paymentInstructions}</p>
-                  )}
-                  <details>
-                    <summary>I have made payment</summary>
-                    <form
-                      className="training-form enroll-payment-form"
-                      onSubmit={(event) => void reportPayment(event)}
+                )}
+              {resumeError && <p role="alert">{resumeError}</p>}
+              <button
+                type="button"
+                className="dm-secondary"
+                disabled={busy || paymentBusy}
+                onClick={() => {
+                  try {
+                    clearEnrollmentResume(schoolId);
+                    const next = newEnrollmentResume();
+                    accessRef.current = next;
+                    requestId.current = next.id;
+                    paymentRequestId.current = next.paymentId;
+                    setReceived(false);
+                    setPaymentSent(false);
+                    setRegistrationStatus("PENDING_PAYMENT");
+                    setPaymentStatus("WAITING");
+                    setStep(0);
+                    setDetails(emptyApplicant());
+                    setPackage("");
+                    setConsent(false);
+                    setReceiptDataUrl("");
+                    setError("");
+                    setResumeError("");
+                  } catch {
+                    setResumeError("Could not clear this browser's saved access.");
+                  }
+                }}
+              >
+                Clear this registration from this device
+              </button>
+              <small>
+                Clearing access removes the ability to resume here. Keep your reference and contact
+                the school if needed.
+              </small>
+              {info?.settings.showBankTransfer &&
+                !paymentSent &&
+                registrationStatus !== "REJECTED" && (
+                  <section className="enroll-payment-card">
+                    <p className="dm-eyebrow">PAY DIRECTLY TO THE SCHOOL</p>
+                    <h3>Make your bank transfer</h3>
+                    <p>
+                      Transfer to the account below. Your payment will be added only after the
+                      school confirms that the money entered its account.
+                    </p>
+                    <dl>
+                      <div>
+                        <dt>Bank</dt>
+                        <dd>{info.settings.bankName}</dd>
+                      </div>
+                      <div>
+                        <dt>Account name</dt>
+                        <dd>{info.settings.accountName}</dd>
+                      </div>
+                      <div className="enroll-account-number">
+                        <dt>Account number</dt>
+                        <dd>{info.settings.accountNumber}</dd>
+                      </div>
+                    </dl>
+                    <button
+                      type="button"
+                      className="dm-secondary"
+                      onClick={() =>
+                        void navigator.clipboard
+                          .writeText(info.settings.accountNumber)
+                          .then(() => setCopied(true))
+                      }
                     >
-                      <label>
-                        Amount transferred (₦)
-                        <input name="amount" type="number" min="1" step="0.01" required />
-                      </label>
-                      <label>
-                        Transfer date
-                        <input
-                          name="transferDate"
-                          type="date"
-                          max={new Date().toISOString().slice(0, 10)}
-                          required
-                        />
-                      </label>
-                      <label>
-                        Name on the sender’s account
-                        <input name="senderName" maxLength={150} required />
-                      </label>
-                      <label>
-                        Bank reference <small>Optional</small>
-                        <input name="reference" maxLength={100} />
-                      </label>
-                      {info.settings.allowReceiptUpload && (
+                      <Copy size={16} /> {copied ? "Account number copied" : "Copy account number"}
+                    </button>
+                    {info.settings.paymentInstructions && (
+                      <p className="enroll-payment-note">{info.settings.paymentInstructions}</p>
+                    )}
+                    <details>
+                      <summary>I have made payment</summary>
+                      <form
+                        className="training-form enroll-payment-form"
+                        onSubmit={(event) => void reportPayment(event)}
+                      >
                         <label>
-                          Receipt screenshot{" "}
-                          <small>Optional — JPG, PNG or WebP, maximum 2 MB</small>
+                          Amount transferred (₦)
+                          <input name="amount" type="number" min="1" step="0.01" required />
+                        </label>
+                        <label>
+                          Transfer date
                           <input
-                            type="file"
-                            accept="image/jpeg,image/png,image/webp"
-                            onChange={(event) => {
-                              const file = event.target.files?.[0];
-                              setError("");
-                              if (!file) return setReceiptDataUrl("");
-                              if (file.size > 2_000_000) {
-                                event.target.value = "";
-                                setError("The receipt image must be smaller than 2 MB.");
-                                return;
-                              }
-                              const reader = new FileReader();
-                              reader.onload = () => setReceiptDataUrl(String(reader.result ?? ""));
-                              reader.readAsDataURL(file);
-                            }}
+                            name="transferDate"
+                            type="date"
+                            max={new Date().toISOString().slice(0, 10)}
+                            required
                           />
                         </label>
-                      )}
-                      {error && (
-                        <p role="alert" className="enroll-error">
-                          {error}
-                        </p>
-                      )}
-                      <button className="dm-primary" disabled={paymentBusy}>
-                        {paymentBusy ? "Sending…" : "Send payment details"}
-                      </button>
-                      <small>
-                        This reports your transfer. It does not confirm payment automatically.
-                      </small>
-                    </form>
-                  </details>
-                </section>
-              )}
+                        <label>
+                          Name on the sender’s account
+                          <input name="senderName" maxLength={150} required />
+                        </label>
+                        <label>
+                          Bank reference <small>Optional</small>
+                          <input name="reference" maxLength={100} />
+                        </label>
+                        {info.settings.allowReceiptUpload && (
+                          <label>
+                            Receipt screenshot{" "}
+                            <small>Optional — JPG, PNG or WebP, maximum 2 MB</small>
+                            <input
+                              type="file"
+                              accept="image/jpeg,image/png,image/webp"
+                              onChange={(event) => {
+                                const file = event.target.files?.[0];
+                                setError("");
+                                if (!file) return setReceiptDataUrl("");
+                                if (file.size > 2_000_000) {
+                                  event.target.value = "";
+                                  setError("The receipt image must be smaller than 2 MB.");
+                                  return;
+                                }
+                                const reader = new FileReader();
+                                reader.onload = () =>
+                                  setReceiptDataUrl(String(reader.result ?? ""));
+                                reader.readAsDataURL(file);
+                              }}
+                            />
+                          </label>
+                        )}
+                        {error && (
+                          <p role="alert" className="enroll-error">
+                            {error}
+                          </p>
+                        )}
+                        <button className="dm-primary" disabled={paymentBusy}>
+                          {paymentBusy ? "Sending…" : "Send payment details"}
+                        </button>
+                        <small>
+                          This reports your transfer. It does not confirm payment automatically.
+                        </small>
+                      </form>
+                    </details>
+                  </section>
+                )}
               {paymentSent && (
                 <div className="enroll-payment-waiting">
                   <CheckCircle2 size={22} />
                   <div>
                     <strong>Payment details sent</strong>
                     <p>
-                      The school will check its bank account. Your payment is waiting for
-                      confirmation.
+                      {paymentStatus === "CONFIRMED"
+                        ? "The school confirmed this payment report."
+                        : paymentStatus === "REJECTED"
+                          ? "The school rejected this payment report. Contact the school before sending another payment."
+                          : "The school will check its bank account. Your payment is waiting for confirmation."}
                     </p>
                   </div>
                 </div>

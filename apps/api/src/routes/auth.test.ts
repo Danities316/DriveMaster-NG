@@ -14,6 +14,7 @@ const SESSION_MAX_AGE_SECONDS = 3600;
 const OWNER_A: UserRecordForAuth = {
   id: "user-a-owner",
   schoolId: "school-a",
+  schoolName: "Ada Driving School",
   name: "Ada Okafor",
   phone: "+2348011111111",
   passwordHash: hashPassword("correct-password"),
@@ -43,6 +44,7 @@ function buildTestAuthDeps(): AuthDeps {
 
 function buildApp() {
   return createApp({
+    securityLimit: async () => {},
     webOrigin: "http://localhost:5173",
     authSecret: AUTH_SECRET,
     sessionMaxAgeSeconds: SESSION_MAX_AGE_SECONDS,
@@ -73,6 +75,7 @@ describe("POST /api/auth/login (HTTP integration)", () => {
       user: {
         id: OWNER_A.id,
         schoolId: OWNER_A.schoolId,
+        schoolName: OWNER_A.schoolName,
         name: OWNER_A.name,
         phone: OWNER_A.phone,
         role: OWNER_A.role
@@ -147,6 +150,7 @@ describe("GET /api/auth/me (HTTP integration)", () => {
       user: {
         id: OWNER_A.id,
         schoolId: OWNER_A.schoolId,
+        schoolName: OWNER_A.schoolName,
         name: OWNER_A.name,
         phone: OWNER_A.phone,
         role: OWNER_A.role

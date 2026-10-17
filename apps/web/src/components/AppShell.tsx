@@ -28,12 +28,14 @@ export function AppShell({
   section,
   onNavigate,
   onLogout,
+  onAccount,
   children
 }: {
   user: AuthenticatedUser;
   section: Section;
   onNavigate: (section: Section) => void;
   onLogout: () => void;
+  onAccount?: () => void;
   children: ReactNode;
 }) {
   const [online, setOnline] = useState(navigator.onLine);
@@ -92,8 +94,9 @@ export function AppShell({
           {items
             .filter(
               (item) =>
-                user.role !== "STUDENT" &&
-                (user.role !== "INSTRUCTOR" || item.key === "home" || item.key === "training")
+                !["INSTRUCTOR", "STUDENT"].includes(user.role) ||
+                item.key === "home" ||
+                item.key === "training"
             )
             .map(({ key, label, icon: Icon }) => (
               <button
@@ -124,7 +127,9 @@ export function AppShell({
                   ? "School owner"
                   : user.role === "RECEPTIONIST"
                     ? "Receptionist"
-                    : "Instructor"}
+                    : user.role === "INSTRUCTOR"
+                      ? "Instructor"
+                      : "Student"}
               </small>
             </span>
           </div>
@@ -137,6 +142,11 @@ export function AppShell({
             <strong>{items.find((item) => item.key === section)?.label}</strong>
           </div>
           <div className="topbar-tools">
+            {onAccount && (
+              <button className="dm-secondary" onClick={onAccount}>
+                Account security
+              </button>
+            )}
             {["OWNER", "RECEPTIONIST"].includes(user.role) && (
               <button className="header-search" onClick={() => onNavigate("students")}>
                 <Search size={17} />

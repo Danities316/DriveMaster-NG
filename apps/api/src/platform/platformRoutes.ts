@@ -1,13 +1,22 @@
 import { Router, type RequestHandler } from "express";
 import { z } from "zod";
 import { getPrismaClient } from "../prisma.js";
-import { verifyPassword } from "../auth/password.js";
+import { verifyPasswordAsync, DUMMY_PASSWORD_HASH } from "../auth/password.js";
+import { securityLimit, type RateConsumer } from "../middleware/securityLimits.js";
 import { parseCookieHeader } from "../lib/cookies.js";
 import { KnownApiError } from "../middleware/errorHandler.js";
-import { createPlatformToken, verifyPlatformToken } from "./platformToken.js";
+import {
+  createPlatformToken,
+  verifyPlatformToken,
+  platformCredentialStamp
+} from "./platformToken.js";
+import { isTokenRevoked, revokeToken } from "../auth/sessionRepository.js";
 
 const COOKIE = "dm_platform_session";
-const loginSchema = z.object({ email: z.string().trim().email(), password: z.string().min(1) });
+const loginSchema = z.object({
+  email: z.string().trim().email().max(254),
+  password: z.string().min(1).max(128)
+});
 const statusSchema = z.object({
   status: z.enum(["TRIAL", "ACTIVE", "SUSPENDED", "CLOSED"]),
   reason: z.string().trim().min(5).max(300)
@@ -16,8 +25,13 @@ const statusSchema = z.object({
 export function createPlatformRouter(options: {
   authSecret: string;
   secureCookies: boolean;
+  securityLimit?: RateConsumer;
 }): Router {
   const router = Router();
+  router.use((_req, res, next) => {
+    res.set("Cache-Control", "no-store");
+    next();
+  });
   const cookieOptions = {
     httpOnly: true,
     secure: options.secureCookies,
@@ -29,8 +43,14 @@ export function createPlatformRouter(options: {
       const token = parseCookieHeader(req.headers.cookie)[COOKIE];
       const claims = token ? verifyPlatformToken(token, options.authSecret) : null;
       if (!claims) throw new KnownApiError("Not authenticated.", 401, "UNAUTHENTICATED");
+      if (await isTokenRevoked(token!))
+        throw new KnownApiError("Not authenticated.", 401, "UNAUTHENTICATED");
       const admin = await getPrismaClient().platformAdmin.findUnique({ where: { id: claims.sub } });
-      if (!admin?.isActive) throw new KnownApiError("Not authenticated.", 401, "UNAUTHENTICATED");
+      if (
+        !admin?.isActive ||
+        claims.credentialStamp !== platformCredentialStamp(admin.passwordHash, options.authSecret)
+      )
+        throw new KnownApiError("Not authenticated.", 401, "UNAUTHENTICATED");
       res.locals["platformAdmin"] = admin;
       next();
     } catch (error) {
@@ -38,39 +58,61 @@ export function createPlatformRouter(options: {
     }
   };
 
-  router.post("/auth/login", async (req, res, next) => {
+  router.post(
+    "/auth/login",
+    securityLimit("platform-login", 30, 900000, options.securityLimit, (body) =>
+      typeof body.email === "string" ? body.email.trim().toLowerCase().slice(0, 254) : null
+    ),
+    async (req, res, next) => {
+      try {
+        const parsed = loginSchema.safeParse(req.body);
+        if (!parsed.success) throw new KnownApiError("Email and password are required.", 400);
+        const admin = await getPrismaClient().platformAdmin.findUnique({
+          where: { email: parsed.data.email.toLowerCase() }
+        });
+        const valid = await verifyPasswordAsync(
+          parsed.data.password,
+          admin?.passwordHash ?? DUMMY_PASSWORD_HASH
+        );
+        if (!admin?.isActive || !valid)
+          throw new KnownApiError("Email or password is incorrect.", 401, "INVALID_CREDENTIALS");
+        const maxAge = 60 * 60 * 8;
+        const token = createPlatformToken(
+          {
+            sub: admin.id,
+            email: admin.email,
+            name: admin.name,
+            credentialStamp: platformCredentialStamp(admin.passwordHash, options.authSecret)
+          },
+          options.authSecret,
+          maxAge
+        );
+        res.cookie(COOKIE, token, { ...cookieOptions, maxAge: maxAge * 1000 });
+        await getPrismaClient().platformAuditLog.create({
+          data: {
+            adminId: admin.id,
+            action: "PLATFORM_ADMIN_LOGIN",
+            entity: "PLATFORM_ADMIN",
+            entityId: admin.id
+          }
+        });
+        res.json({ admin: { id: admin.id, name: admin.name, email: admin.email } });
+      } catch (error) {
+        next(error);
+      }
+    }
+  );
+
+  router.post("/auth/logout", async (req, res, next) => {
     try {
-      const parsed = loginSchema.safeParse(req.body);
-      if (!parsed.success) throw new KnownApiError("Email and password are required.", 400);
-      const admin = await getPrismaClient().platformAdmin.findUnique({
-        where: { email: parsed.data.email.toLowerCase() }
-      });
-      if (!admin?.isActive || !verifyPassword(parsed.data.password, admin.passwordHash))
-        throw new KnownApiError("Email or password is incorrect.", 401, "INVALID_CREDENTIALS");
-      const maxAge = 60 * 60 * 8;
-      const token = createPlatformToken(
-        { sub: admin.id, email: admin.email, name: admin.name },
-        options.authSecret,
-        maxAge
-      );
-      res.cookie(COOKIE, token, { ...cookieOptions, maxAge: maxAge * 1000 });
-      await getPrismaClient().platformAuditLog.create({
-        data: {
-          adminId: admin.id,
-          action: "PLATFORM_ADMIN_LOGIN",
-          entity: "PLATFORM_ADMIN",
-          entityId: admin.id
-        }
-      });
-      res.json({ admin: { id: admin.id, name: admin.name, email: admin.email } });
+      const token = parseCookieHeader(req.headers.cookie)[COOKIE];
+      const claims = token ? verifyPlatformToken(token, options.authSecret) : null;
+      if (token && claims) await revokeToken(token, new Date(claims.exp * 1000));
+      res.clearCookie(COOKIE, { path: "/" });
+      res.json({ success: true });
     } catch (error) {
       next(error);
     }
-  });
-
-  router.post("/auth/logout", (_req, res) => {
-    res.clearCookie(COOKIE, { path: "/" });
-    res.json({ success: true });
   });
 
   router.get("/overview", authenticate, async (_req, res, next) => {
@@ -119,6 +161,20 @@ export function createPlatformRouter(options: {
           where: { id: req.params["schoolId"] },
           data: { status: parsed.data.status }
         });
+        if (["SUSPENDED", "CLOSED"].includes(updated.status)) {
+          await tx.user.updateMany({
+            where: { schoolId: updated.id },
+            data: { sessionVersion: { increment: 1 } }
+          });
+          await tx.passwordReset.updateMany({
+            where: { user: { schoolId: updated.id } },
+            data: { digest: null }
+          });
+          await tx.ownerPhoneVerification.updateMany({
+            where: { user: { schoolId: updated.id } },
+            data: { digest: null, delivered: false }
+          });
+        }
         await tx.platformAuditLog.create({
           data: {
             adminId: admin.id,

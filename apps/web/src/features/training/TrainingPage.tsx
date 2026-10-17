@@ -1,3 +1,4 @@
+import { StaffAccounts } from "./StaffAccounts";
 import { StudentTrainingReport } from "./StudentTrainingReport";
 import { EntryForm, Field } from "./TrainingFields";
 import { ProfileSettings } from "./ProfileSettings";
@@ -213,15 +214,15 @@ export function TrainingPage({
         <div>
           <p className="dm-eyebrow">
             {student
-              ? "YOUR DRIVING LESSONS"
+              ? `${user.name.toUpperCase()} DRIVING LESSONS`
               : office
                 ? "TRAINING AND COSTS"
-                : "YOUR DRIVING LESSONS"}
+                : `${user.name.toUpperCase()} DRIVING LESSONS`}
           </p>
           <h1>
-            {student
-              ? "My lessons"
-              : (tab === "outings" || user.role === "INSTRUCTOR") && outingFilter === "today"
+            {student || user.role === "INSTRUCTOR"
+              ? `Hello, ${user.name}.`
+              : tab === "outings" && outingFilter === "today"
                 ? "Today's training"
                 : "Training"}
           </h1>
@@ -237,10 +238,10 @@ export function TrainingPage({
           )}
           <p>
             {student
-              ? "See your lessons and tell us whether they took place."
+              ? "See what you have completed, what comes next and confirm each lesson in one place."
               : office
                 ? "Book lessons, start training and follow each student’s progress."
-                : "Open your training trip, mark who is present and record their lessons."}
+                : "See today's lessons, mark attendance and record each result with fewer steps."}
           </p>
         </div>
         <div className="fleet-actions">
@@ -581,7 +582,7 @@ export function TrainingPage({
                             outing.data.members.some((member) => member.studentId === s.studentId)
                         )
                       )}
-                      showMoney={owner}
+                      showMoney={office || student}
                       onPrint={student ? () => window.print() : undefined}
                     />
                     <details>
@@ -606,21 +607,6 @@ export function TrainingPage({
                         onSave={command}
                       />
                     </details>
-                    <h4>Payment</h4>
-                    <dl>
-                      <div>
-                        <dt>Agreed fee</dt>
-                        <dd>{naira(s.fee)}</dd>
-                      </div>
-                      <div>
-                        <dt>Paid</dt>
-                        <dd>{naira(s.paid)}</dd>
-                      </div>
-                      <div>
-                        <dt>Still to pay</dt>
-                        <dd>{naira(s.balance)}</dd>
-                      </div>
-                    </dl>
                     {owner && (
                       <details className="student-cost-details">
                         <summary>View training costs</summary>
@@ -1140,7 +1126,7 @@ export function TrainingPage({
                     className="dm-panel training-panel training-setting"
                     hidden={setupArea !== "people"}
                   >
-                    <summary>Create instructor or student access</summary>
+                    <summary>Create instructor, receptionist or student access</summary>
                     <p>
                       Internet is required. Give the password privately to the account holder.
                       Students can only see their own lessons and fees; instructors cannot confirm
@@ -1180,6 +1166,7 @@ export function TrainingPage({
                         >
                           <option value="STUDENT">Student</option>
                           <option value="INSTRUCTOR">Instructor</option>
+                          <option value="RECEPTIONIST">Receptionist</option>
                         </select>
                       </label>
                       {accountRole === "STUDENT" && (
@@ -1206,7 +1193,7 @@ export function TrainingPage({
                         snapshot.students.every((student) => student.hasAccount) && (
                           <p>Every registered student already has an account.</p>
                         )}
-                      {accountRole === "INSTRUCTOR" && (
+                      {accountRole !== "STUDENT" && (
                         <>
                           <Field label="Name" name="name" />
                           <Field label="Phone number" name="phone" type="tel" />
@@ -1225,6 +1212,7 @@ export function TrainingPage({
                       </label>
                     </EntryForm>
                   </details>
+                  {setupArea === "people" && <StaffAccounts onChanged={() => refresh()} />}
                 </>
               )}
             </section>
@@ -1244,7 +1232,7 @@ export function TrainingPage({
                 currentPassword: value(f, "currentPassword"),
                 password: value(f, "password")
               });
-              setMessage("Password changed.");
+              window.dispatchEvent(new Event("drivemaster:session-ended"));
             }}
           >
             <Field label="Current password" name="currentPassword" type="password" />

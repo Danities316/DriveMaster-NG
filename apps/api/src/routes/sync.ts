@@ -35,7 +35,12 @@ export function createSyncRouter(options: {
   const router = Router();
   const deps = options.syncDeps ?? syncDeps;
   router.use(
-    createAuthenticateMiddleware(options.authSecret, options.authDeps.findUserByPhone),
+    createAuthenticateMiddleware(
+      options.authSecret,
+      options.authDeps.findUserByPhone,
+      false,
+      options.authDeps.isTokenRevoked
+    ),
     requireRole("OWNER", "RECEPTIONIST")
   );
   router.post("/batch", async (req, res, next) => {

@@ -150,3 +150,15 @@ it("stays out of the way for operating schools and non-owners", async () => {
   );
   expect(screen.queryByText("Get DriveMaster ready")).toBeNull();
 });
+
+it("keeps setup guidance after payments or multiple students when requirements are missing", async () => {
+  await cache(base);
+  const actions = renderGuide({ studentCount: 3, paymentCount: 5 });
+  fireEvent.click(await screen.findByRole("button", { name: "Add training package" }));
+  expect(actions.onSetup).toHaveBeenCalledOnce();
+});
+it("does not hide missing setup information just because money has been recorded", async () => {
+  const actions = renderGuide({ studentCount: 8, paymentCount: 4 });
+  fireEvent.click(await screen.findByRole("button", { name: /Open School setup/ }));
+  expect(actions.onSetup).toHaveBeenCalledOnce();
+});

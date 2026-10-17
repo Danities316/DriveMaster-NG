@@ -105,9 +105,9 @@ describe("LoginForm", () => {
     });
     fireEvent.click(screen.getByRole("button", { name: /log in/i }));
 
-    expect(screen.getByRole("button")).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Logging in..." })).toBeDisabled();
 
     resolveFetch({ ok: true, json: async () => ({ user: SAMPLE_USER }) });
-    await waitFor(() => expect(screen.getByRole("button")).not.toBeDisabled());
+    await waitFor(() => expect(screen.getByRole("button", { name: "Log in" })).not.toBeDisabled());
   });
 });

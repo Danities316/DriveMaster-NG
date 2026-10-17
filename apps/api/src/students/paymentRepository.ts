@@ -3,6 +3,11 @@ import { addMoney, ZERO_MONEY } from "@drivemaster/shared";
 import type { PaymentRecord, CreatePaymentInput } from "./paymentService.js";
 
 interface PrismaPaymentRow {
+  entryType?: string;
+  originalPaymentId?: string | null;
+  adjustmentId?: string | null;
+  reason?: string | null;
+  recordedById?: string | null;
   id: string;
   schoolId: string;
   studentId: string;
@@ -16,6 +21,11 @@ interface PrismaPaymentRow {
 
 function toPaymentRecord(row: PrismaPaymentRow): PaymentRecord {
   return {
+    entryType: row.entryType as PaymentRecord["entryType"],
+    originalPaymentId: row.originalPaymentId,
+    adjustmentId: row.adjustmentId,
+    reason: row.reason,
+    recordedById: row.recordedById,
     id: row.id,
     schoolId: row.schoolId,
     studentId: row.studentId,
@@ -31,23 +41,39 @@ function toPaymentRecord(row: PrismaPaymentRow): PaymentRecord {
 export async function createPaymentRecord(
   schoolId: string,
   studentId: string,
-  input: CreatePaymentInput
+  input: CreatePaymentInput,
+  actorId?: string
 ): Promise<PaymentRecord> {
   const prisma = getPrismaClient();
   try {
-    const created = await prisma.payment.create({
-      data: {
-        id: input.id,
-        schoolId,
-        studentId,
-        amount: input.amount,
-        paymentDate: new Date(input.paymentDate),
-        method: input.method,
-        currency: input.currency ?? "NGN",
-        reference: input.method === "CASH" ? null : (input.reference ?? null)
-      }
-    });
+    const created = await prisma.$transaction(async (tx) => {
+      const payment = await tx.payment.create({
+        data: {
+          recordedById: actorId,
+          id: input.id,
+          schoolId,
+          studentId,
+          amount: input.amount,
+          paymentDate: new Date(input.paymentDate),
+          method: input.method,
+          currency: input.currency ?? "NGN",
+          reference: input.method === "CASH" ? null : (input.reference ?? null)
+        }
+      });
 
+      if (!actorId) throw new Error("Financial writes require an actor.");
+      await tx.auditLog.create({
+        data: {
+          schoolId,
+          userId: actorId,
+          action: "CREATE",
+          entity: "PAYMENT",
+          entityId: payment.id,
+          metadata: { amount: input.amount, studentId }
+        }
+      });
+      return payment;
+    });
     return toPaymentRecord(created as unknown as PrismaPaymentRow);
   } catch (error) {
     // A concurrent retry may win the unique primary-key race. Returning the

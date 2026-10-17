@@ -1,5 +1,5 @@
 import type { UserRole } from "@drivemaster/shared";
-import { verifyPassword, DUMMY_PASSWORD_HASH } from "./password.js";
+import { verifyPasswordAsync, DUMMY_PASSWORD_HASH } from "./password.js";
 
 /**
  * Internal shape of a user record as needed for authentication. Distinct
@@ -12,15 +12,20 @@ import { verifyPassword, DUMMY_PASSWORD_HASH } from "./password.js";
 export interface UserRecordForAuth {
   id: string;
   schoolId: string;
+  schoolName?: string;
   name: string;
   phone: string;
   passwordHash: string;
   role: UserRole;
   isActive: boolean;
+  phoneVerificationRequired?: boolean;
+  sessionVersion?: number;
   schoolStatus?: "TRIAL" | "ACTIVE" | "SUSPENDED" | "CLOSED";
 }
 
 export interface AuthDeps {
+  isTokenRevoked?: (token: string) => Promise<boolean>;
+  revokeToken?: (token: string, expiresAt: Date) => Promise<void>;
   findUserByPhone: (phone: string) => Promise<UserRecordForAuth | null>;
 }
 
@@ -43,11 +48,11 @@ export async function login(phone: string, password: string, deps: AuthDeps): Pr
     // Perform a dummy hash comparison so an unknown phone number takes
     // roughly the same time as a known phone number with a wrong
     // password, reducing (not eliminating) a timing side-channel.
-    verifyPassword(password, DUMMY_PASSWORD_HASH);
+    await verifyPasswordAsync(password, DUMMY_PASSWORD_HASH);
     return { ok: false, reason: "INVALID_CREDENTIALS" };
   }
 
-  const passwordValid = verifyPassword(password, user.passwordHash);
+  const passwordValid = await verifyPasswordAsync(password, user.passwordHash);
   if (!passwordValid) {
     return { ok: false, reason: "INVALID_CREDENTIALS" };
   }

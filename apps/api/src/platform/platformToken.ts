@@ -1,6 +1,8 @@
-import { createHmac, timingSafeEqual } from "node:crypto";
+import { createHmac, timingSafeEqual, randomUUID } from "node:crypto";
 
 interface PlatformClaims {
+  credentialStamp?: string;
+  sessionId?: string;
   sub: string;
   email: string;
   name: string;
@@ -9,7 +11,9 @@ interface PlatformClaims {
 }
 const encode = (value: Buffer | string) => Buffer.from(value).toString("base64url");
 const signature = (value: string, secret: string) =>
-  createHmac("sha256", secret).update(value).digest();
+  createHmac("sha256", secret).update(`platform-session:${value}`).digest();
+export const platformCredentialStamp = (passwordHash: string, secret: string) =>
+  createHmac("sha256", secret).update(`platform-credential:${passwordHash}`).digest("hex");
 
 export function createPlatformToken(
   claims: Omit<PlatformClaims, "iat" | "exp">,
@@ -17,13 +21,15 @@ export function createPlatformToken(
   maxAgeSeconds: number
 ) {
   const iat = Math.floor(Date.now() / 1000);
-  const payload = encode(JSON.stringify({ ...claims, iat, exp: iat + maxAgeSeconds }));
+  const payload = encode(
+    JSON.stringify({ ...claims, sessionId: randomUUID(), iat, exp: iat + maxAgeSeconds })
+  );
   return `${payload}.${encode(signature(payload, secret))}`;
 }
 
 export function verifyPlatformToken(token: string, secret: string): PlatformClaims | null {
-  const [payload, supplied] = token.split(".");
-  if (!payload || !supplied) return null;
+  const [payload, supplied, extra] = token.split(".");
+  if (!payload || !supplied || extra) return null;
   const expected = signature(payload, secret);
   let received: Buffer;
   try {
@@ -35,7 +41,16 @@ export function verifyPlatformToken(token: string, secret: string): PlatformClai
   try {
     const claims = JSON.parse(Buffer.from(payload, "base64url").toString("utf8")) as PlatformClaims;
     const now = Math.floor(Date.now() / 1000);
-    if (!claims.sub || !claims.email || !claims.name || claims.exp <= now || claims.iat > now)
+    if (
+      !claims.sub ||
+      !claims.email ||
+      !claims.name ||
+      !Number.isSafeInteger(claims.exp) ||
+      !Number.isSafeInteger(claims.iat) ||
+      claims.exp <= claims.iat ||
+      claims.exp <= now ||
+      claims.iat > now
+    )
       return null;
     return claims;
   } catch {

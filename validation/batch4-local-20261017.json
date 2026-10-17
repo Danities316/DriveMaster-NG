@@ -1,0 +1,205 @@
+{
+  "kind": "local-synthetic-baseline",
+  "measuredAt": "2026-10-17T07:06:52.066Z",
+  "results": [
+    {
+      "students": 100,
+      "outings": 500,
+      "payments": 500,
+      "responseBytes": 412202,
+      "sequentialMs": [
+        222,
+        159,
+        192,
+        221,
+        317
+      ],
+      "medianMs": 221,
+      "concurrent3Ms": [
+        412,
+        483,
+        256
+      ],
+      "concurrentMaxMs": 483
+    },
+    {
+      "students": 500,
+      "outings": 2500,
+      "payments": 2500,
+      "responseBytes": 2058202,
+      "sequentialMs": [
+        629,
+        718,
+        657,
+        607,
+        1007
+      ],
+      "medianMs": 657,
+      "concurrent3Ms": [
+        1173,
+        1425,
+        1103
+      ],
+      "concurrentMaxMs": 1425
+    },
+    {
+      "students": 1000,
+      "outings": 5000,
+      "payments": 5000,
+      "responseBytes": 4115702,
+      "sequentialMs": [
+        1509,
+        1466,
+        1082,
+        1639,
+        1695
+      ],
+      "medianMs": 1509,
+      "concurrent3Ms": [
+        1314,
+        1379,
+        1648
+      ],
+      "concurrentMaxMs": 1648
+    }
+  ],
+  "environment": "Windows, Node 24.16.0, PostgreSQL 16, isolated localhost:55438; synthetic data only",
+  "tests": {
+    "shared": 75,
+    "apiUnitAndHttp": 133,
+    "postgresqlIntegration": 58,
+    "frontend": 317,
+    "distinctTotal": 583
+  },
+  "build": "Full production build passed; API rebuilt after snapshot optimization",
+  "lint": {
+    "errors": 0,
+    "existingWarnings": 12
+  },
+  "restore": {
+    "allPublicTableFingerprintsMatch": true,
+    "allPublicSequenceStatesMatch": true,
+    "paymentImmutabilityTriggerVerified": true,
+    "databaseReadinessVerified": true,
+    "tables": {
+      "_prisma_migrations": {
+        "rows": 17,
+        "sha256": "2a1d9787654ffbb724f10aed0dbad8f4d0f8eb6f8735a0529e3e0cfd90354777"
+      },
+      "audit_logs": {
+        "rows": 0,
+        "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      },
+      "enrollment_applications": {
+        "rows": 0,
+        "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      },
+      "fuel_logs": {
+        "rows": 0,
+        "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      },
+      "mileage_logs": {
+        "rows": 0,
+        "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      },
+      "outbox_mutations": {
+        "rows": 0,
+        "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      },
+      "owner_phone_verifications": {
+        "rows": 0,
+        "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      },
+      "password_resets": {
+        "rows": 0,
+        "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      },
+      "payment_adjustments": {
+        "rows": 0,
+        "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      },
+      "payment_claims": {
+        "rows": 0,
+        "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      },
+      "payments": {
+        "rows": 8000,
+        "sha256": "1abd4dcd6720245cba8b702735be4462a325d8f109e463e6336c34a2d6875a5d"
+      },
+      "platform_admins": {
+        "rows": 0,
+        "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      },
+      "platform_audit_logs": {
+        "rows": 0,
+        "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      },
+      "revoked_sessions": {
+        "rows": 0,
+        "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      },
+      "schools": {
+        "rows": 3,
+        "sha256": "b98f00bf959e250bf54b74acd2cbcbc4c5719d17a9f0e29f0c18e2373f55ca39"
+      },
+      "session_bookings": {
+        "rows": 0,
+        "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      },
+      "students": {
+        "rows": 1600,
+        "sha256": "2363c08c35a83300588a4927a5e333d1cbd0f96f223ed5a5e32800019aad3920"
+      },
+      "sync_changes": {
+        "rows": 9600,
+        "sha256": "b0867f52f3b487b36fd3d499e4829c96ec9d06790cf456a924a456270487ab87"
+      },
+      "sync_receipts": {
+        "rows": 0,
+        "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      },
+      "training_receipts": {
+        "rows": 0,
+        "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      },
+      "training_records": {
+        "rows": 9603,
+        "sha256": "86cbf0059baef64711fbc5ed9f72cbd6622ddf16eef0069b1ac10907b3d44482"
+      },
+      "users": {
+        "rows": 6,
+        "sha256": "94947cefe9ffb5778992a40233d0cd64b1e88fa87982cc01b863a8af3b5ea055"
+      },
+      "vehicles": {
+        "rows": 3,
+        "sha256": "260a8f22cf1b6573fca92e1365cfa2d0aff7829d6fe76259af28858b83e83030"
+      },
+      "verification_rate_limits": {
+        "rows": 0,
+        "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      },
+      "sequences": {
+        "sync_changes_id_seq": [
+          {
+            "last_value": "9600",
+            "is_called": true
+          }
+        ]
+      }
+    }
+  },
+  "liveChecks": {
+    "web": "https://drivemaster-silk.vercel.app/",
+    "webStatus": 200,
+    "healthStatus": 200,
+    "readyStatus": 404,
+    "ownerVerificationStatus": 404,
+    "smsSent": false,
+    "deploymentPerformed": false
+  },
+  "limits": [
+    "Synthetic localhost timings exclude mobile rendering and real WAN latency.",
+    "Full-history responses still grow; 1000-student fixture returned 4115702 bytes.",
+    "Hosted migrations/deployment, real SMS, device acceptance, alert delivery and hosted restore/RPO/RTO remain pending."
+  ]
+}

@@ -141,7 +141,13 @@ export function Dashboard({
       <div className="dashboard-heading">
         <div>
           <p className="dm-eyebrow">{paymentsOnly ? "SCHOOL MONEY" : "SCHOOL OVERVIEW"}</p>
-          <h1>{paymentsOnly ? "Money" : `Hello, ${user.name.split(" ")[0]}.`}</h1>
+          <h1>
+            {paymentsOnly
+              ? "Money"
+              : user.role === "OWNER"
+                ? `Hello, ${user.schoolName ?? "your driving school"}.`
+                : `Hello, ${user.name.split(" ")[0]}.`}
+          </h1>
           <p>
             {paymentsOnly
               ? "See who has paid, who still owes and where training money goes."
@@ -391,6 +397,9 @@ export function Dashboard({
                     </td>
                     <td data-label="Method">
                       {{ CASH: "Cash", BANK_TRANSFER: "Bank transfer", POS: "POS" }[row.method]}
+                      {row.entryType && row.entryType !== "PAYMENT" && (
+                        <small className="block">{row.entryType.replaceAll("_", " ")}</small>
+                      )}
                     </td>
                     <td data-label="Amount" className="amount-cell">
                       {naira(row.amount)}

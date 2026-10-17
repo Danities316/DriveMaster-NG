@@ -19,6 +19,7 @@ let activeUser: UserRecordForAuth;
 let deps: SyncDeps;
 const build = () =>
   createApp({
+    securityLimit: async () => {},
     webOrigin: "http://localhost:5173",
     authSecret: "sync-test-secret-with-more-than-32-characters",
     sessionMaxAgeSeconds: 3600,

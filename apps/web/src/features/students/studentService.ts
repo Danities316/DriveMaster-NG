@@ -17,13 +17,14 @@ export interface CreateStudentResult {
 export type UpdateStudentResult = CreateStudentResult;
 export async function createStudentOffline(
   input: Omit<CreateStudentRequest, "id">,
-  schoolId: string
+  schoolId: string,
+  stableId?: string
 ): Promise<CreateStudentResult> {
   validateStudent(input);
   const now = new Date().toISOString();
   const student: StudentWithBalance = {
     ...input,
-    id: crypto.randomUUID(),
+    id: stableId ?? crypto.randomUUID(),
     schoolId,
     licenseNumber: input.licenseNumber ?? null,
     amountPaid: "0.00",
@@ -32,6 +33,11 @@ export async function createStudentOffline(
     updatedAt: now
   };
   await db.transaction("rw", db.students, db.outbox, async () => {
+    const existing = await db.students.get(student.id);
+    if (existing) {
+      if (existing.schoolId !== schoolId) throw new Error("Student belongs to another school.");
+      return;
+    }
     await db.students.add(student);
     await enqueue({
       schoolId,
@@ -41,7 +47,7 @@ export async function createStudentOffline(
     });
   });
   requestSync();
-  return { student, queued: true };
+  return { student: (await db.students.get(student.id))!, queued: true };
 }
 
 export async function createStudentWithPackageOffline(
@@ -149,7 +155,7 @@ export async function updateStudentOffline(
 export async function refreshStudentsFromServer(): Promise<void> {
   requestSync();
 }
-function validateStudent(input: UpdateStudentRequest): void {
+export function validateStudent(input: UpdateStudentRequest): void {
   if (
     (input.name !== undefined && !input.name.trim()) ||
     (input.phone !== undefined &&

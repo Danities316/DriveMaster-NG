@@ -1,6 +1,7 @@
 import { ensureEnvFile, loadEnv } from "./env.js";
 import { createApp } from "./app.js";
 import { getPrismaClient } from "./prisma.js";
+import { smsConfig } from "./auth/sms.js";
 
 async function main(): Promise<void> {
   ensureEnvFile();
@@ -10,6 +11,7 @@ async function main(): Promise<void> {
   // client construction) so misconfiguration always surfaces as a
   // readable env-validation error, not a confusing downstream stack trace.
   const env = loadEnv();
+  smsConfig();
 
   const app = createApp({
     webOrigin: env.WEB_ORIGIN,
@@ -18,6 +20,7 @@ async function main(): Promise<void> {
     secureCookies: env.NODE_ENV === "production"
   });
   const prisma = getPrismaClient();
+  app.set("trust proxy", env.TRUST_PROXY_HOPS);
 
   // Verify the PostgreSQL connection at startup. This is a connectivity
   // check only — no domain queries exist yet (Unit 1 scope).

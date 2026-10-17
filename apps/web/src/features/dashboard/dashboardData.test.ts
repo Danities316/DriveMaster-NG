@@ -42,6 +42,27 @@ const queue = (
   createdAt: now.toISOString()
 });
 describe("dashboard financial summary", () => {
+  it("nets signed ledger adjustments once and keeps refund labels", () => {
+    const original = payment("original", "20000.00");
+    const refund = {
+      ...payment("refund", "-5000.00"),
+      entryType: "REFUND" as const,
+      originalPaymentId: "original"
+    };
+    const result = summarize(
+      "school",
+      [{ ...student, amountPaid: "15000.00" }],
+      [original, refund],
+      [original, refund],
+      [],
+      now
+    );
+    expect(result.todayPaid).toBe("15000.00");
+    expect(result.outstanding).toBe("85000.00");
+    expect(result.paymentRows).toHaveLength(2);
+    expect(result.paymentRows.find((p) => p.id === "refund")?.entryType).toBe("REFUND");
+  });
+
   it("excludes other schools and separates unconfirmed or conflicting payments", () => {
     const result = summarize(
       "school",

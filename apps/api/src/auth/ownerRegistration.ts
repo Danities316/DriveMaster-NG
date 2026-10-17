@@ -1,5 +1,5 @@
 import { getPrismaClient } from "../prisma.js";
-import { hashPassword } from "./password.js";
+import { hashPasswordAsync } from "./password.js";
 import {
   DEFAULT_ENROLLMENT_SETTINGS,
   DEFAULT_SCHOOL_CURRICULUM,
@@ -20,9 +20,7 @@ export interface OwnerRegistrationInput {
 
 export async function registerOwner(input: OwnerRegistrationInput) {
   const prisma = getPrismaClient();
-  const trialEndsAt = new Date();
-  trialEndsAt.setUTCDate(trialEndsAt.getUTCDate() + 14);
-
+  const passwordHash = await hashPasswordAsync(input.password);
   return prisma.$transaction(async (tx) => {
     const school = await tx.school.create({
       data: {
@@ -32,7 +30,7 @@ export async function registerOwner(input: OwnerRegistrationInput) {
         school_cac_rc: input.cacNumber || null,
         frsc_accreditation_number: input.frscNumber || null,
         status: "TRIAL",
-        trialEndsAt
+        trialEndsAt: null
       }
     });
     const user = await tx.user.create({
@@ -40,9 +38,10 @@ export async function registerOwner(input: OwnerRegistrationInput) {
         schoolId: school.id,
         name: input.ownerName,
         phone: input.phone,
-        passwordHash: hashPassword(input.password),
+        passwordHash,
         role: "OWNER",
-        isActive: true
+        isActive: true,
+        phoneVerificationRequired: true
       }
     });
     const starterRecords = [

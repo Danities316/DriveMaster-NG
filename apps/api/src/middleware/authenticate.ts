@@ -16,7 +16,9 @@ import type { AuthDeps } from "../auth/authService.js";
  */
 export function createAuthenticateMiddleware(
   secret: string,
-  findUser?: AuthDeps["findUserByPhone"]
+  findUser?: AuthDeps["findUserByPhone"],
+  allowUnverified = false,
+  isTokenRevoked?: AuthDeps["isTokenRevoked"]
 ) {
   return async function authenticate(
     req: Request,
@@ -40,12 +42,38 @@ export function createAuthenticateMiddleware(
     let current = payload;
     if (findUser) {
       try {
-        const user = await findUser(payload.phone);
-        if (!user?.isActive || user.id !== payload.sub || user.schoolId !== payload.schoolId) {
+        if (isTokenRevoked && (await isTokenRevoked(token))) {
           next(new KnownApiError("Not authenticated.", 401, "UNAUTHENTICATED"));
           return;
         }
-        current = { ...payload, role: user.role, name: user.name, phone: user.phone };
+        const user = await findUser(payload.phone);
+        if (
+          !user?.isActive ||
+          user.id !== payload.sub ||
+          user.schoolId !== payload.schoolId ||
+          ["SUSPENDED", "CLOSED"].includes(user.schoolStatus ?? "") ||
+          (payload.sessionVersion ?? 0) !== (user.sessionVersion ?? 0)
+        ) {
+          next(new KnownApiError("Not authenticated.", 401, "UNAUTHENTICATED"));
+          return;
+        }
+        if (user.phoneVerificationRequired && !allowUnverified) {
+          next(
+            new KnownApiError(
+              "Verify your phone number before opening your school workspace.",
+              403,
+              "PHONE_VERIFICATION_REQUIRED"
+            )
+          );
+          return;
+        }
+        current = {
+          ...payload,
+          role: user.role,
+          name: user.name,
+          phone: user.phone,
+          schoolName: user.schoolName
+        };
       } catch (error) {
         next(error);
         return;
@@ -54,6 +82,7 @@ export function createAuthenticateMiddleware(
     req.auth = {
       userId: payload.sub,
       schoolId: payload.schoolId,
+      schoolName: current.schoolName,
       role: current.role,
       name: current.name,
       phone: current.phone

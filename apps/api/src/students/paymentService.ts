@@ -1,7 +1,10 @@
 import type { Payment, PaymentMethod } from "@drivemaster/shared";
 import { normalizeMoney, subtractMoney, sumMoney, ZERO_MONEY } from "@drivemaster/shared";
 
-export interface PaymentRecord {
+export interface PaymentRecord extends Pick<
+  Payment,
+  "entryType" | "originalPaymentId" | "adjustmentId" | "reason" | "recordedById"
+> {
   id: string;
   schoolId: string;
   studentId: string;
@@ -27,7 +30,8 @@ export interface PaymentDeps {
   createPaymentRecord: (
     schoolId: string,
     studentId: string,
-    input: CreatePaymentInput
+    input: CreatePaymentInput,
+    actorId?: string
   ) => Promise<PaymentRecord>;
   findPaymentsByStudent: (schoolId: string, studentId: string) => Promise<PaymentRecord[]>;
   sumPaymentsByStudentIds: (
@@ -50,6 +54,7 @@ export type CreateStudentPaymentResult =
 
 function toPayment(record: PaymentRecord): Payment {
   return {
+    ...record,
     id: record.id,
     schoolId: record.schoolId,
     studentId: record.studentId,
@@ -93,17 +98,7 @@ export async function listStudentPayments(
 
   return {
     ok: true,
-    payments: payments.map((payment) => ({
-      id: payment.id,
-      schoolId: payment.schoolId,
-      studentId: payment.studentId,
-      amount: payment.amount,
-      paymentDate: payment.paymentDate,
-      method: payment.method,
-      currency: payment.currency,
-      reference: payment.reference,
-      createdAt: payment.createdAt
-    })),
+    payments: payments.map(toPayment),
     totalPaid,
     outstandingBalance
   };
@@ -113,7 +108,8 @@ export async function createStudentPayment(
   schoolId: string,
   studentId: string,
   input: CreatePaymentInput,
-  deps: PaymentDeps
+  deps: PaymentDeps,
+  actorId?: string
 ): Promise<CreateStudentPaymentResult> {
   const existingPayment = await deps.findPaymentById(input.id);
   if (existingPayment) {
@@ -149,11 +145,16 @@ export async function createStudentPayment(
     throw new Error("Reference is required for BANK_TRANSFER and POS payments.");
   }
 
-  const payment = await deps.createPaymentRecord(schoolId, studentId, {
-    ...input,
-    currency: input.currency ?? "NGN",
-    reference: input.method === "CASH" ? null : (input.reference ?? null)
-  });
+  const payment = await deps.createPaymentRecord(
+    schoolId,
+    studentId,
+    {
+      ...input,
+      currency: input.currency ?? "NGN",
+      reference: input.method === "CASH" ? null : (input.reference ?? null)
+    },
+    actorId
+  );
   if (payment.schoolId !== schoolId || !matchesPaymentInput(payment, studentId, input)) {
     return { ok: false, reason: "ID_CONFLICT" };
   }

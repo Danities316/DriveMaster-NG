@@ -5,17 +5,15 @@ import { DriveMasterDB } from "./db";
 it("upgrades existing queued work without losing IDs, payloads, or dependencies", async () => {
   const name = `upgrade-${crypto.randomUUID()}`;
   const old = new Dexie(name);
-  old
-    .version(1)
-    .stores({
-      students: "id, schoolId",
-      payments: "id, schoolId, studentId",
-      vehicles: "id, schoolId",
-      fuelLogs: "id, schoolId, vehicleId",
-      sessionBookings: "id, schoolId, vehicleId, instructorId, studentId, startTime",
-      outbox: "mutationId, status, entity, createdAt",
-      syncState: "deviceId"
-    });
+  old.version(1).stores({
+    students: "id, schoolId",
+    payments: "id, schoolId, studentId",
+    vehicles: "id, schoolId",
+    fuelLogs: "id, schoolId, vehicleId",
+    sessionBookings: "id, schoolId, vehicleId, instructorId, studentId, startTime",
+    outbox: "mutationId, status, entity, createdAt",
+    syncState: "deviceId"
+  });
   await old.table("students").put({ id: "s", schoolId: "school", name: "Ada" });
   await old.table("outbox").bulkPut([
     {
@@ -60,6 +58,7 @@ it("upgrades existing queued work without losing IDs, payloads, or dependencies"
   try {
     await upgraded.open();
     expect(await upgraded.outbox.count()).toBe(4);
+    expect(await upgraded.pendingAdjustments.count()).toBe(0);
     expect(await upgraded.outbox.get("create")).toMatchObject({
       status: "PENDING",
       schoolId: "school",

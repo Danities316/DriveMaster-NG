@@ -2,10 +2,23 @@ import type { TrainingDestination } from "./features/dashboard/SchoolDay";
 import { startTrainingSync } from "./features/training/trainingLocal";
 import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import { AppShell, type Section } from "./components/AppShell";
-import type { AuthenticatedUser, StudentWithBalance } from "@drivemaster/shared";
+import type {
+  AuthenticatedUser,
+  StudentWithBalance,
+  OwnerVerificationStatus
+} from "@drivemaster/shared";
 import { LoginForm } from "./components/LoginForm";
 import { OwnerRegistrationForm } from "./components/OwnerRegistrationForm";
-import { fetchCurrentUser, getCachedUser, logout } from "./lib/auth";
+import {
+  AUTH_CHANGE_KEY,
+  AUTH_STORAGE_KEYS,
+  fetchCurrentUser,
+  getCachedUser,
+  getPendingVerification,
+  logout
+} from "./lib/auth";
+import { OwnerVerificationForm } from "./components/OwnerVerificationForm";
+import { AccountSecurity } from "./components/AccountSecurity";
 import { ConnectionStatus } from "./components/ConnectionStatus";
 import { startSync } from "./sync/controller";
 
@@ -64,10 +77,13 @@ function PageLoading() {
 }
 
 type AuthState =
-  { status: "loading" } | { status: "loggedOut" } | { status: "loggedIn"; user: AuthenticatedUser };
+  | { status: "loading" }
+  | { status: "loggedOut" }
+  | { status: "verifying"; verification: OwnerVerificationStatus }
+  | { status: "loggedIn"; user: AuthenticatedUser };
 
 type View =
-  | { screen: "dashboard" | "payments" | "sync" | "fleet" | "more" }
+  | { screen: "dashboard" | "payments" | "sync" | "fleet" | "more" | "security" }
   | ({ screen: "training"; studentId?: string; fromMore?: boolean } & TrainingDestination)
   | { screen: "list" }
   | { screen: "detail"; studentId: string }
@@ -103,6 +119,8 @@ export function App() {
     window.scrollTo(0, 0);
   }
   const [authState, setAuthState] = useState<AuthState>(() => {
+    const pending = getPendingVerification();
+    if (pending) return { status: "verifying", verification: pending };
     const cached = getCachedUser();
     return cached ? { status: "loggedIn", user: cached } : { status: "loading" };
   });
@@ -122,28 +140,91 @@ export function App() {
 
   useEffect(() => {
     let cancelled = false;
-    const generation = authGeneration.current;
-
-    fetchCurrentUser()
-      .then((result) => {
-        if (cancelled || generation !== authGeneration.current) return;
-        if (result.user) {
-          setAuthState({ status: "loggedIn", user: result.user });
-        } else {
-          // The server explicitly said "not authenticated" — trust that
-          // over any stale cache.
-          setAuthState({ status: "loggedOut" });
-        }
-        // source === "cache" or "none": leave the initial state as-is
-        // (either already optimistically logged in, or already loggedOut/loading).
-      })
-      .catch(() => {
-        setAuthState((prev) => (prev.status === "loading" ? { status: "loggedOut" } : prev));
-      });
-
+    let reconciling = false;
+    const reconcile = () => {
+      if (reconciling) return;
+      reconciling = true;
+      const generation = authGeneration.current;
+      void fetchCurrentUser()
+        .then((result) => {
+          if (cancelled || generation !== authGeneration.current) return;
+          if ("verification" in result) {
+            setAuthState({ status: "verifying", verification: result.verification });
+          } else if (!result.user && result.source === "none" && getPendingVerification()) {
+            setAuthState({ status: "verifying", verification: getPendingVerification()! });
+          } else if (result.user) {
+            const next = result.user;
+            setAuthState((prev) =>
+              prev.status === "loggedIn" &&
+              prev.user.id === next.id &&
+              prev.user.schoolId === next.schoolId &&
+              prev.user.role === next.role &&
+              prev.user.name === next.name &&
+              prev.user.phone === next.phone &&
+              prev.user.schoolName === next.schoolName
+                ? prev
+                : { status: "loggedIn", user: next }
+            );
+          } else {
+            // The server explicitly said "not authenticated" — trust that
+            // over any stale cache.
+            setAuthState({ status: "loggedOut" });
+          }
+          // source === "cache" or "none": leave the initial state as-is
+          // (either already optimistically logged in, or already loggedOut/loading).
+        })
+        .catch(() => {
+          if (cancelled || generation !== authGeneration.current) return;
+          setAuthState((prev) => (prev.status === "loading" ? { status: "loggedOut" } : prev));
+        })
+        .finally(() => {
+          reconciling = false;
+        });
+    };
+    reconcile();
+    const foreground = () => {
+      if (document.visibilityState !== "hidden" && navigator.onLine !== false) reconcile();
+    };
+    const timer = window.setInterval(foreground, 60000);
+    window.addEventListener("focus", foreground);
+    window.addEventListener("online", foreground);
+    document.addEventListener("visibilitychange", foreground);
     return () => {
+      clearInterval(timer);
+      window.removeEventListener("focus", foreground);
+      window.removeEventListener("online", foreground);
+      document.removeEventListener("visibilitychange", foreground);
       cancelled = true;
     };
+  }, []);
+
+  const authStateRef = useRef(authState);
+  authStateRef.current = authState;
+  useEffect(() => {
+    const changed = (event: StorageEvent) => {
+      if (event.storageArea && event.storageArea !== localStorage) return;
+      if (event.key !== null && !AUTH_STORAGE_KEYS.includes(event.key)) return;
+      const cached = getCachedUser();
+      const current = authStateRef.current;
+      if (
+        event.key !== AUTH_CHANGE_KEY &&
+        event.key !== null &&
+        current.status === "loggedIn" &&
+        cached?.id === current.user.id &&
+        cached.schoolId === current.user.schoolId &&
+        cached.role === current.user.role
+      )
+        return;
+      // Lock this tab only. Never log out the new account whose cookie another tab owns.
+      authGeneration.current++;
+      sessionStorage.removeItem("drivemaster:ownerVerification");
+      setAuthState({ status: "loggedOut" });
+      setView({ screen: "dashboard" });
+      window.location.hash = "#login";
+      setPublicRoute("#login");
+    };
+    window.addEventListener("storage", changed);
+    return () => window.removeEventListener("storage", changed);
   }, []);
 
   async function handleLogout(): Promise<void> {
@@ -157,6 +238,14 @@ export function App() {
   function handleSaved(student: StudentWithBalance): void {
     setView({ screen: "detail", studentId: student.id });
   }
+
+  useEffect(() => {
+    const endSession = () => {
+      void handleLogout();
+    };
+    window.addEventListener("drivemaster:session-ended", endSession);
+    return () => window.removeEventListener("drivemaster:session-ended", endSession);
+  });
 
   function navigateSection(section: Section): void {
     setView(
@@ -186,6 +275,23 @@ export function App() {
       <Suspense fallback={<PageLoading />}>
         <PlatformAdminPage />
       </Suspense>
+    );
+  if (authState.status === "verifying")
+    return (
+      <main className="home-login">
+        <div className="home-login-card">
+          <OwnerVerificationForm
+            initialStatus={authState.verification}
+            onSignOut={() => void handleLogout()}
+            onSuccess={(user) => {
+              authGeneration.current += 1;
+              setAuthState({ status: "loggedIn", user });
+              setView({ screen: "training", tab: "setup" });
+              navigatePublic("#app");
+            }}
+          />
+        </div>
+      </main>
     );
   if (
     ["#home", "#benefits", "#walkthrough", "#questions", "#home-main", "#mileage-fuel"].includes(
@@ -225,14 +331,14 @@ export function App() {
           <p className="home-kicker">START YOUR SCHOOL WORKSPACE</p>
           <h1>Create your school account.</h1>
           <p>
-            Start with a 14-day trial. Add your school details, then set up packages, instructors
-            and vehicles.
+            Add your school details and verify your phone by SMS. Your 14-day trial starts after
+            verification. Then set up packages, instructors and vehicles.
           </p>
           <OwnerRegistrationForm
-            onSuccess={(user) => {
+            onSuccess={(verification) => {
               authGeneration.current += 1;
-              setAuthState({ status: "loggedIn", user });
-              navigatePublic("#app");
+              setAuthState({ status: "verifying", verification });
+              navigatePublic("#verify");
             }}
           />
           <p className="home-login-help">
@@ -254,6 +360,11 @@ export function App() {
           <h1>Welcome back.</h1>
           <p>Sign in to your students, payments, and daily overview.</p>
           <LoginForm
+            onVerification={(verification) => {
+              authGeneration.current += 1;
+              setAuthState({ status: "verifying", verification });
+              navigatePublic("#verify");
+            }}
             onSuccess={(user) => {
               authGeneration.current += 1;
               setAuthState({ status: "loggedIn", user });
@@ -271,20 +382,35 @@ export function App() {
   const { user } = authState;
   if (user.role === "STUDENT" || user.role === "INSTRUCTOR")
     return (
-      <Suspense fallback={<PageLoading />}>
-        <TrainingPage key={user.id} user={user} onLogout={() => void handleLogout()} />
-      </Suspense>
+      <AppShell
+        onAccount={() => setView({ screen: "security" })}
+        user={user}
+        section={view.screen === "training" ? "training" : "home"}
+        onNavigate={(section) =>
+          setView(section === "training" ? { screen: "training" } : { screen: "dashboard" })
+        }
+        onLogout={() => void handleLogout()}
+      >
+        <Suspense fallback={<PageLoading />}>
+          {view.screen === "security" ? (
+            <AccountSecurity onSignedOut={() => void handleLogout()} />
+          ) : (
+            <TrainingPage key={`${user.id}-${view.screen}`} user={user} />
+          )}
+        </Suspense>
+      </AppShell>
     );
 
   return (
     <AppShell
+      onAccount={() => setView({ screen: "security" })}
       user={user}
       section={
         view.screen === "dashboard"
           ? "home"
           : view.screen === "payments"
             ? "money"
-            : ["more", "sync", "fleet"].includes(view.screen) ||
+            : ["more", "sync", "fleet", "security"].includes(view.screen) ||
                 (view.screen === "training" && view.fromMore)
               ? "more"
               : view.screen === "training"
@@ -295,6 +421,7 @@ export function App() {
       onLogout={() => void handleLogout()}
     >
       <Suspense fallback={<PageLoading />}>
+        {view.screen === "security" && <AccountSecurity onSignedOut={() => void handleLogout()} />}
         {view.screen === "dashboard" || view.screen === "payments" ? (
           <Dashboard
             key={view.screen}

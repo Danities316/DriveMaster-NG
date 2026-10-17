@@ -1,4 +1,4 @@
-import { createHmac, timingSafeEqual } from "node:crypto";
+import { createHmac, timingSafeEqual, randomUUID } from "node:crypto";
 import type { UserRole } from "@drivemaster/shared";
 
 /**
@@ -26,9 +26,12 @@ import type { UserRole } from "@drivemaster/shared";
  */
 
 export interface SessionTokenPayload {
+  sessionVersion?: number;
+  sessionId?: string;
   /** Subject — the authenticated user's id. */
   sub: string;
   schoolId: string;
+  schoolName?: string;
   role: UserRole;
   name: string;
   phone: string;
@@ -58,7 +61,13 @@ export function createSessionToken(
 ): string {
   const iat = Math.floor(Date.now() / 1000);
   const exp = iat + expiresInSeconds;
-  const payload: SessionTokenPayload = { ...claims, iat, exp };
+  const payload: SessionTokenPayload = {
+    ...claims,
+    sessionVersion: claims.sessionVersion ?? 0,
+    sessionId: randomUUID(),
+    iat,
+    exp
+  };
 
   const payloadPart = base64url(JSON.stringify(payload));
   const signaturePart = base64url(sign(payloadPart, secret));
@@ -107,6 +116,8 @@ export function verifySessionToken(token: string, secret: string): SessionTokenP
   if (!decoded || typeof decoded !== "object") return null;
   const payload = decoded as SessionTokenPayload;
   if (
+    (payload.sessionVersion !== undefined &&
+      (!Number.isSafeInteger(payload.sessionVersion) || payload.sessionVersion < 0)) ||
     !Number.isSafeInteger(payload.exp) ||
     payload.exp <= Math.floor(Date.now() / 1000) ||
     !Number.isSafeInteger(payload.iat) ||

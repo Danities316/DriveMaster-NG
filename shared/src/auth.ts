@@ -4,6 +4,7 @@ import type { UserRole } from "./domain.js";
 export interface AuthenticatedUser {
   id: string;
   schoolId: string;
+  schoolName?: string;
   name: string;
   phone: string;
   role: UserRole;
@@ -22,4 +23,12 @@ export interface MeResponse {
 /** Response contract for POST /api/auth/logout. */
 export interface LogoutResponse {
   success: true;
+}
+
+export interface OwnerVerificationStatus {
+  verificationRequired: true;
+  maskedPhone: string;
+  resendAt: string | null;
+  expiresAt: string | null;
+  delivery: "sent" | "failed" | "not_sent";
 }

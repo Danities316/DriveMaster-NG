@@ -1,3 +1,4 @@
+import { adjustmentSchema, adjustPayment, reviewPayment } from "../students/paymentAdjustments.js";
 import { Router } from "express";
 import { z, type ZodError } from "zod";
 import type { StudentListResponse, StudentResponse } from "@drivemaster/shared";
@@ -97,7 +98,12 @@ export interface CreateStudentsRouterOptions {
 export function createStudentsRouter(options: CreateStudentsRouterOptions): Router {
   const { authSecret, studentDeps, paymentDeps } = options;
   const router = Router();
-  const authenticate = createAuthenticateMiddleware(authSecret, options.authDeps.findUserByPhone);
+  const authenticate = createAuthenticateMiddleware(
+    authSecret,
+    options.authDeps.findUserByPhone,
+    false,
+    options.authDeps.isTokenRevoked
+  );
   const staffOnly = requireRole(...STUDENT_STAFF_ROLES);
 
   router.get("/", authenticate, staffOnly, async (req, res, next) => {
@@ -126,7 +132,12 @@ export function createStudentsRouter(options: CreateStudentsRouterOptions): Rout
         );
       }
 
-      const student = await createStudent(req.auth!.schoolId, parsed.data, studentDeps);
+      const student = await createStudent(
+        req.auth!.schoolId,
+        parsed.data,
+        studentDeps,
+        req.auth!.userId
+      );
       const body: StudentResponse = { student };
       res.status(201).json(body);
     } catch (error) {
@@ -160,7 +171,9 @@ export function createStudentsRouter(options: CreateStudentsRouterOptions): Rout
         throw new KnownApiError("Student id is required.", 400, "VALIDATION_ERROR");
       }
 
-      const parsed = updateStudentSchema.safeParse(req.body);
+      const parsed = updateStudentSchema
+        .extend({ expectedVersion: z.number().int().nonnegative() })
+        .safeParse(req.body);
       if (!parsed.success) {
         throw new KnownApiError(
           firstZodMessage(parsed.error, "Please check the student details and try again."),
@@ -169,7 +182,15 @@ export function createStudentsRouter(options: CreateStudentsRouterOptions): Rout
         );
       }
 
-      const result = await updateStudent(req.auth!.schoolId, studentId, parsed.data, studentDeps);
+      const { expectedVersion, ...patch } = parsed.data;
+      const result = await updateStudent(
+        req.auth!.schoolId,
+        studentId,
+        patch,
+        studentDeps,
+        req.auth!.userId,
+        expectedVersion
+      );
       if (!result.ok) {
         throw new KnownApiError("Student not found.", 404, "NOT_FOUND");
       }
@@ -223,7 +244,8 @@ export function createStudentsRouter(options: CreateStudentsRouterOptions): Rout
         req.auth!.schoolId,
         studentId,
         parsed.data,
-        paymentDeps
+        paymentDeps,
+        req.auth!.userId
       );
       if (!result.ok) {
         if (result.reason === "ID_CONFLICT") {
@@ -245,6 +267,54 @@ export function createStudentsRouter(options: CreateStudentsRouterOptions): Rout
       next(error);
     }
   });
+
+  router.get(
+    "/:id/payments/:paymentId/review",
+    authenticate,
+    requireRole("OWNER"),
+    async (req, res, next) => {
+      try {
+        const result = await reviewPayment(req.auth!.schoolId, String(req.params.paymentId));
+        if (result.payment.studentId !== req.params.id)
+          throw new KnownApiError("Payment not found.", 404);
+        res.json(result);
+      } catch (error) {
+        next(error);
+      }
+    }
+  );
+  router.post(
+    "/:id/payments/:paymentId/adjustments",
+    authenticate,
+    requireRole("OWNER"),
+    async (req, res, next) => {
+      try {
+        if (req.get("X-Adjustment-User") !== req.auth!.userId)
+          throw new KnownApiError(
+            "The signed-in owner changed. Sign back in as the owner who started this adjustment.",
+            409,
+            "ACCOUNT_CHANGED"
+          );
+        const parsed = adjustmentSchema.safeParse(req.body);
+        if (!parsed.success)
+          throw new KnownApiError(
+            parsed.error.issues[0]?.message ?? "Check adjustment details.",
+            400,
+            "VALIDATION_ERROR"
+          );
+        const result = await adjustPayment(
+          req.auth!.schoolId,
+          req.auth!.userId,
+          String(req.params.paymentId),
+          parsed.data,
+          String(req.params.id)
+        );
+        res.status(201).json(result);
+      } catch (error) {
+        next(error);
+      }
+    }
+  );
 
   return router;
 }
