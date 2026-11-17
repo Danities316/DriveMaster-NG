@@ -16,16 +16,33 @@ export function VehicleDocumentsSettings({
   onSave: (action: string, target: string, data: unknown, version?: number) => Promise<void>;
 }) {
   const [vehicleId, setVehicle] = useState("");
+  const vehicle = snapshot.vehicles.find((v) => v.id === vehicleId);
   const record = snapshot.vehicleDocuments?.find((r) => r.data.vehicleId === vehicleId);
   const target = record?.id ?? `documents-${vehicleId}`;
+  const currentDocuments = {
+    insuranceExpiryDate: vehicle?.insuranceExpiryDate ?? record?.data.insuranceExpiryDate ?? null,
+    vehicleLicenceExpiryDate:
+      vehicle?.vehicleLicenceExpiryDate ?? record?.data.vehicleLicenceExpiryDate ?? null,
+    roadworthinessExpiryDate:
+      vehicle?.roadworthinessExpiryDate ?? record?.data.roadworthinessExpiryDate ?? null
+  };
   const issues = vehicleId
     ? vehicleDocumentIssues(
-        record?.data,
+        {
+          vehicleId,
+          insuranceExpiryDate: currentDocuments.insuranceExpiryDate,
+          vehicleLicenceExpiryDate: currentDocuments.vehicleLicenceExpiryDate,
+          roadworthinessExpiryDate: currentDocuments.roadworthinessExpiryDate,
+          reason: record?.data.reason ?? ""
+        },
         snapshot.schoolRules?.data ?? DEFAULT_SCHOOL_RULES,
         lagosDay(new Date().toISOString())
       )
     : [];
-  const documentStatus = (key: "insurance" | "roadworthiness", expiry?: string | null) => {
+  const documentStatus = (
+    key: "insurance" | "vehicle-licence" | "roadworthiness",
+    expiry?: string | null
+  ) => {
     const issue = issues.find((item) => item.key === key);
     if (!expiry) return "Missing";
     if (!issue) return "Valid";
@@ -54,8 +71,9 @@ export function VehicleDocumentsSettings({
           <div className="vehicle-document-cards">
             {(
               [
-                ["Insurance", "insurance", record?.data.insuranceExpiryDate],
-                ["Roadworthiness", "roadworthiness", record?.data.roadworthinessExpiryDate]
+                ["Insurance", "insurance", currentDocuments.insuranceExpiryDate],
+                ["Vehicle licence", "vehicle-licence", currentDocuments.vehicleLicenceExpiryDate],
+                ["Roadworthiness", "roadworthiness", currentDocuments.roadworthinessExpiryDate]
               ] as const
             ).map(([label, key, expiry]) => (
               <article key={key}>
@@ -76,6 +94,7 @@ export function VehicleDocumentsSettings({
                 {
                   vehicleId,
                   insuranceExpiryDate: String(f.get("insuranceExpiryDate") ?? ""),
+                  vehicleLicenceExpiryDate: String(f.get("vehicleLicenceExpiryDate") ?? ""),
                   roadworthinessExpiryDate: String(f.get("roadworthinessExpiryDate") ?? ""),
                   reason: String(f.get("reason") ?? "")
                 },
@@ -88,14 +107,21 @@ export function VehicleDocumentsSettings({
               name="insuranceExpiryDate"
               type="date"
               required={false}
-              initial={record?.data.insuranceExpiryDate ?? ""}
+              initial={currentDocuments.insuranceExpiryDate ?? ""}
+            />
+            <Field
+              label="Vehicle licence expiry date"
+              name="vehicleLicenceExpiryDate"
+              type="date"
+              required={false}
+              initial={currentDocuments.vehicleLicenceExpiryDate ?? ""}
             />
             <Field
               label="Roadworthiness expiry date"
               name="roadworthinessExpiryDate"
               type="date"
               required={false}
-              initial={record?.data.roadworthinessExpiryDate ?? ""}
+              initial={currentDocuments.roadworthinessExpiryDate ?? ""}
             />
             <Field label="Reason for updating vehicle documents" name="reason" />
             {pending(target) && (

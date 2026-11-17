@@ -70,6 +70,13 @@ export function loadEnv(source: NodeJS.ProcessEnv = process.env): Env {
     );
   }
 
+  if (
+    result.data.NODE_ENV === "production" &&
+    /placeholder|change[-_ ]?me/i.test(result.data.AUTH_TOKEN_SECRET)
+  ) {
+    throw new Error("AUTH_TOKEN_SECRET must be replaced with a unique random value in production.");
+  }
+
   return result.data;
 }
 

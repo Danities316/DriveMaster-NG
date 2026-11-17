@@ -32,11 +32,9 @@ it("finishes a lesson without requiring hidden purchase fields when no fuel was 
   fireEvent.change(screen.getByLabelText("What did you teach today?"), {
     target: { value: "Steering, gears and road positioning" }
   });
-  fireEvent.click(screen.getByRole("button", { name: "Continue" }));
   fireEvent.change(screen.getByLabelText("Was fuel bought during this trip?"), {
     target: { value: "no" }
   });
-  fireEvent.click(screen.getByRole("button", { name: "Continue" }));
   fireEvent.click(screen.getByRole("button", { name: "Finish training" }));
   await waitFor(() =>
     expect(save).toHaveBeenCalledWith(expect.objectContaining({ fuelSpent: "0.00", odometer: 110 }))
@@ -46,15 +44,15 @@ it("finishes a lesson without requiring hidden purchase fields when no fuel was 
 it("shows missing document reminders and takes the owner to the settings", () => {
   const onSettings = vi.fn();
   render(<DocumentReminders snapshot={snapshot} onSettings={onSettings} />);
-  fireEvent.click(screen.getByText("2 document reminders to check"));
-  expect(screen.getAllByText(/Expiry date not entered/)).toHaveLength(2);
+  fireEvent.click(screen.getByText("3 document reminders to check"));
+  expect(screen.getAllByText(/Expiry date not entered/)).toHaveLength(3);
   fireEvent.click(screen.getByRole("button", { name: "Update document details" }));
   expect(onSettings).toHaveBeenCalledWith("vehicles");
 });
 it("shares a prepared document reminder through WhatsApp without an API", () => {
   const open = vi.spyOn(window, "open").mockImplementation(() => null);
   render(<DocumentReminders snapshot={snapshot} />);
-  fireEvent.click(screen.getByText("2 document reminders to check"));
+  fireEvent.click(screen.getByText("3 document reminders to check"));
   fireEvent.click(screen.getAllByRole("button", { name: "Share via WhatsApp" })[0]!);
   expect(open).toHaveBeenCalledWith(
     expect.stringMatching(/^https:\/\/wa\.me\/\?text=.*ABC123/),
@@ -69,7 +67,7 @@ it("queues vehicle expiry dates without changing confirmed records", async () =>
   fireEvent.click(screen.getByText("Vehicle insurance and roadworthiness dates"));
   fireEvent.change(screen.getByLabelText("Vehicle to update"), { target: { value: "v" } });
   expect(screen.getByRole("heading", { name: "Insurance" })).toBeVisible();
-  expect(screen.getAllByText("Missing")).toHaveLength(2);
+  expect(screen.getAllByText("Missing")).toHaveLength(3);
   fireEvent.change(screen.getByLabelText("Insurance expiry date"), {
     target: { value: "2027-01-01" }
   });
@@ -84,6 +82,7 @@ it("queues vehicle expiry dates without changing confirmed records", async () =>
       {
         vehicleId: "v",
         insuranceExpiryDate: "2027-01-01",
+        vehicleLicenceExpiryDate: "",
         roadworthinessExpiryDate: "",
         reason: "Renewed"
       },

@@ -166,7 +166,7 @@ it("saves offline start and finish steps in order without claiming server confir
   expect(actions).toEqual(["START", "FINISH"]);
   expect(await db.trainingQueue.count()).toBe(0);
 });
-it("keeps a failed start and its finish details for review", async () => {
+it("keeps an overlapping start as a conflict and preserves its finish details", async () => {
   await queueTraining(user, { action: "START", targetId: "outing", expectedVersion: 0, data: {} });
   await queueTraining(user, {
     action: "FINISH",
@@ -174,22 +174,31 @@ it("keeps a failed start and its finish details for review", async () => {
     expectedVersion: 1,
     data: { note: "keep me" }
   });
-  vi.stubGlobal(
-    "fetch",
-    vi.fn(async (_url, init: RequestInit) =>
-      init.body
-        ? { ok: false, status: 409, json: async () => ({ error: { message: "Vehicle busy" } }) }
-        : { ok: true, json: async () => snapshot }
-    )
+  const fetcher = vi.fn(async (_url: unknown, init: RequestInit) =>
+    init.body
+      ? {
+          ok: false,
+          status: 409,
+          json: async () => ({
+            error: {
+              message: "This outing conflicts because the vehicle is already booked.",
+              code: "TRAINING_CONFLICT"
+            }
+          })
+        }
+      : { ok: true, json: async () => snapshot }
   );
+  vi.stubGlobal("fetch", fetcher);
   await sendTraining(user);
   expect((await db.trainingQueue.toArray()).find((q) => q.action === "START")).toMatchObject({
-    status: "FAILED",
-    error: "Vehicle busy"
+    status: "CONFLICT",
+    error: "This outing conflicts because the vehicle is already booked."
   });
   expect((await db.trainingQueue.toArray()).find((q) => q.action === "FINISH")?.data).toEqual({
     note: "keep me"
   });
+  await sendTraining(user, { force: true });
+  expect(fetcher.mock.calls.filter(([, init]) => Boolean(init.body))).toHaveLength(1);
 });
 it("never sends another user's saved commands and rejects a cross-account snapshot", async () => {
   await queueTraining(user, { action: "START", targetId: "outing", expectedVersion: 0, data: {} });
@@ -238,14 +247,15 @@ it("reports the oldest blocking record instead of claiming Refresh succeeded", a
   expect(fetcher).toHaveBeenCalledOnce(); // Snapshot only, no unsafe replay of a rejected record.
 });
 
-it("keeps retrying temporary failures beyond five attempts and lets a manual send bypass the delay", async () => {
+it("uses the prescribed retry delays and keeps the fifth failure for review", async () => {
   await queueTraining(user, {
     action: "SALARY",
     targetId: "pay",
     data: { instructorId: "i", month: "2026-09" }
   });
   const entry = (await db.trainingQueue.toArray())[0]!;
-  await db.trainingQueue.update(entry.id, { attempts: 4 });
+  let now = 1_000_000;
+  vi.spyOn(Date, "now").mockImplementation(() => now);
   const fetcher = vi.fn(async (_url: unknown, init: RequestInit) =>
     init.body
       ? {
@@ -256,14 +266,36 @@ it("keeps retrying temporary failures beyond five attempts and lets a manual sen
       : { ok: true, json: async () => snapshot }
   );
   vi.stubGlobal("fetch", fetcher);
-  expect((await sendTraining(user)).kind).toBe("waiting");
-  expect(await db.trainingQueue.get(entry.id)).toMatchObject({ status: "PENDING", attempts: 5 });
+  const delays = [5000, 30000, 120000, 600000];
+  for (let attempt = 1; attempt <= 5; attempt++) {
+    expect((await sendTraining(user)).kind).toBe(attempt === 5 ? "blocked" : "waiting");
+    const saved = await db.trainingQueue.get(entry.id);
+    expect(saved).toMatchObject({
+      status: attempt === 5 ? "FAILED" : "PENDING",
+      attempts: attempt
+    });
+    expect(saved?.nextAttemptAt).toBe(attempt === 5 ? 0 : now + delays[attempt - 1]!);
+    if (attempt <= delays.length) now += delays[attempt - 1]!;
+  }
   fetcher.mockClear();
-  await sendTraining(user);
-  expect(fetcher).toHaveBeenCalledOnce(); // Automatic retry respects its delay.
-  fetcher.mockImplementation(async () => ({ ok: true, json: async () => snapshot }));
-  expect((await sendTraining(user, { force: true })).kind).toBe("sent");
-  expect(await db.trainingQueue.count()).toBe(0);
+  await sendTraining(user, { force: true });
+  expect(fetcher.mock.calls.filter(([, init]) => Boolean(init?.body))).toHaveLength(0);
+  expect(await db.trainingQueue.count()).toBe(1);
+});
+
+it("moves previously over-retried pending records to review without sending them again", async () => {
+  await queueTraining(user, { action: "BOOK", targetId: "old-booking", data: {} });
+  const entry = (await db.trainingQueue.toArray())[0]!;
+  await db.trainingQueue.update(entry.id, { attempts: 5, nextAttemptAt: 0 });
+  const fetcher = vi.fn().mockResolvedValue({ ok: true, json: async () => snapshot });
+  vi.stubGlobal("fetch", fetcher);
+  expect((await sendTraining(user)).kind).toBe("blocked");
+  expect(await db.trainingQueue.get(entry.id)).toMatchObject({
+    status: "FAILED",
+    attempts: 5,
+    nextAttemptAt: 0
+  });
+  expect(fetcher.mock.calls.filter(([, init]) => Boolean(init?.body))).toHaveLength(0);
 });
 
 it("exposes an active send lease and snapshot failures through user-scoped status events", async () => {

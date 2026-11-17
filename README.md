@@ -22,13 +22,15 @@ The home page is available at `/#home`, sign-in at `/#login`, and the authentica
 - Transactional server receipts prevent duplicate application after a lost response. Sync writes also create audit events.
 - Status and retry controls; pending work survives reload, network failure and logout. Switching schools is blocked while work remains unsynchronized.
 
-Synchronization covers students, payments, vehicle registration, mileage readings and fuel claims. Full-tank-to-full-tank consumption and discrepancy flags are derived from synchronized fuel records and owner-configured vehicle benchmarks. See [FLEET_RECORDING.md](FLEET_RECORDING.md) for setup and calculation rules. Training packages, group outings, student confirmation and student cost summaries are available under Training; see [TRAINING.md](TRAINING.md). Fuel claim approval, WhatsApp receipts, correction transactions and production onboarding remain unfinished. Audit logging in this update covers sync writes; older direct CRUD routes do not yet have complete audit coverage.
+Synchronization covers students, payments, vehicle registration, mileage readings and fuel claims. Full-tank-to-full-tank consumption and discrepancy flags are derived from synchronized fuel records and owner-configured vehicle benchmarks. See [FLEET_RECORDING.md](FLEET_RECORDING.md) for setup and calculation rules. Training packages, group outings, student confirmation and student cost summaries are available under Training; see [TRAINING.md](TRAINING.md). Student pages offer prepared WhatsApp payment-reminder, training-progress and lesson-confirmation messages via wa.me; they are not payment-specific receipt links. Fuel claim approval, correction transactions and production onboarding remain unfinished. Audit logging in this update covers sync writes; older direct CRUD routes do not yet have complete audit coverage.
 
 See [SYNC.md](SYNC.md) for protocol details, migration notes, limitations and acceptance checks. Automatic synchronization runs while the app is open; a closed app resumes on reopening.
 
 ## Run locally in VS Code
 
 Open the extracted source folder containing this package.json, then open Terminal > New Terminal. Use Node.js 22+ and npm 10+.
+
+When sharing source code, use `git archive` or a clean checkout. Never zip the working folder; it may include local `.env` files, `node_modules`, and other private or generated files.
 
 ```powershell
 npm ci

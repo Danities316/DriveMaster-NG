@@ -51,7 +51,7 @@ beforeEach(async () => {
   for (const table of db.tables) await table.clear();
 });
 
-it("summarizes today's existing training states and opens Today's Training", async () => {
+it("summarizes today's training as information and provides one clear route to it", async () => {
   await db.trainingCache.put({
     userId: user.id,
     schoolId: user.schoolId,
@@ -68,11 +68,11 @@ it("summarizes today's existing training states and opens Today's Training", asy
   });
   const callbacks = props();
   render(<SchoolDay {...callbacks} />);
-  const today = await screen.findByRole("region", { name: "Today’s training" });
+  const today = await screen.findByRole("region", { name: "Training overview" });
   expect(within(today).getByText("Coming up").previousElementSibling).toHaveTextContent("1");
   expect(within(today).getByText("Training now").previousElementSibling).toHaveTextContent("1");
   expect(within(today).getByText("Completed").previousElementSibling).toHaveTextContent("1");
-  fireEvent.click(within(today).getByRole("button", { name: /Open Training/ }));
+  fireEvent.click(within(today).getByRole("button", { name: /Open today’s training/ }));
   expect(callbacks.onTraining).toHaveBeenCalledWith({ tab: "outings", filter: "today" });
 });
 
@@ -105,7 +105,7 @@ it("prioritizes real attention items and leaves ordinary waiting records out", a
   );
   const area = await screen.findByRole("region", { name: "What needs your attention?" });
   expect(within(area).getByText("2 records need attention")).toBeVisible();
-  expect(within(area).getByText("1 lesson was reported with a problem")).toBeVisible();
+  expect(within(area).getByText(/1 lesson.*reported with a problem/)).toBeVisible();
   expect(within(area).getByText("3 students still owe fees")).toBeVisible();
   expect(within(area).queryByText(/4 records waiting/)).toBeNull();
 });
@@ -134,7 +134,15 @@ it("opens the document settings area directly from a dashboard reminder", async 
     loadedAt: new Date().toISOString(),
     snapshot: {
       ...snapshot,
-      vehicles: [{ id: "vehicle", plateNumber: "ABC123" }],
+      vehicles: [
+        {
+          id: "vehicle",
+          plateNumber: "ABC123",
+          vehicleLicenceExpiryDate: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000)
+            .toISOString()
+            .slice(0, 10)
+        }
+      ],
       vehicleDocuments: []
     }
   });

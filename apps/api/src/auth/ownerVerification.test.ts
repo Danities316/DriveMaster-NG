@@ -48,6 +48,7 @@ function fixture() {
   return {
     state,
     rates,
+    store,
     send,
     service,
     advance: (ms: number) => {
@@ -59,6 +60,20 @@ function fixture() {
   };
 }
 describe("owner phone verification", () => {
+  it("generates a code only when a verification message is requested", async () => {
+    const f = fixture();
+    const generateCode = vi.fn(() => "123456");
+    const service = createOwnerVerification({
+      store: f.store,
+      secret: "long-random-test-secret",
+      send: f.send,
+      code: generateCode,
+      now: () => new Date("2026-10-14T10:00:00Z")
+    });
+    expect(generateCode).not.toHaveBeenCalled();
+    await service.send("owner", "ip");
+    expect(generateCode).toHaveBeenCalledOnce();
+  });
   it("stores only a keyed digest, masks the phone and requires a code before activation", async () => {
     const f = fixture();
     const status = await f.service.send("owner", "ip");

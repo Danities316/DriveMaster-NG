@@ -52,6 +52,32 @@ it("rolls back the record when queue persistence fails", async () => {
   await expect(recordFleet(user, "fuel_log", claim())).rejects.toThrow("quota");
   expect(await db.fuelLogs.count()).toBe(0);
 });
+it("sets the local fuel discrepancy flag from the previous same-vehicle record", async () => {
+  await recordFleet(user, "vehicle", vehicle);
+  await db.fuelLogs.add({
+    ...claim(),
+    id: crypto.randomUUID(),
+    schoolId: user.schoolId,
+    recordedById: user.id,
+    date: "2026-01-01T10:00:00Z",
+    odometer: 1000,
+    cost: "1000.00",
+    litres: "20.00",
+    receiptReference: "PREVIOUS",
+    discrepancyAlert: false,
+    createdAt: "2026-01-01T11:00:00Z"
+  });
+
+  await recordFleet(user, "fuel_log", {
+    ...claim(),
+    odometer: 1009,
+    cost: "5000.00",
+    date: "2026-01-02T10:00:00Z"
+  });
+
+  expect((await db.fuelLogs.toArray()).find((row) => row.receiptReference === "R1"))
+    .toMatchObject({ discrepancyAlert: true });
+});
 it("prevents duplicate plates, fuel references and mileage readings", async () => {
   await recordFleet(user, "vehicle", vehicle);
   await expect(

@@ -16,8 +16,8 @@ export default defineConfig({
         name: "DriveMaster NG",
         short_name: "DriveMaster",
         description: "Offline-first operations app for Nigerian driving schools",
-        theme_color: "#0000FF", // Blue primary brand color
-        background_color: "#f8fafc", // Tailwind slate-50
+        theme_color: "#059669",
+        background_color: "#f8fafc",
         display: "standalone",
         start_url: "/",
         icons: [

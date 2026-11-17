@@ -119,6 +119,9 @@ export function TrainingPage({
       initialTab ?? (initialBook ? "outings" : initialStudentId ? "students" : "outings")
     ),
     [studentFilter, setStudentFilter] = useState(initialStudentId);
+  const [moreViewsOpen, setMoreViewsOpen] = useState(
+    initialTab === "costs" || initialTab === "setup"
+  );
   const [outingFilter, setOutingFilter] = useState<TrainingView>(initialFilter);
   const [scheduleNow, setScheduleNow] = useState(() => new Date());
   useEffect(() => {
@@ -197,13 +200,17 @@ export function TrainingPage({
   const scheduleGroups = trainingGroups(
     snapshot?.outings ?? [],
     outingFilter,
-    new Set((data?.queue ?? []).filter((q) => q.status === "FAILED").map((q) => q.targetId)),
+    new Set(
+      (data?.queue ?? [])
+        .filter((q) => q.status === "FAILED" || q.status === "CONFLICT")
+        .map((q) => q.targetId)
+    ),
     scheduleNow
   );
   const pending = (id: string) => (data?.queue ?? []).filter((q) => q.targetId === id);
   const savedTrainingRecords = [...(data?.queue ?? [])].sort(
     (a, b) =>
-      Number(b.status === "FAILED") - Number(a.status === "FAILED") || a.createdAt - b.createdAt
+      Number(b.status !== "PENDING") - Number(a.status !== "PENDING") || a.createdAt - b.createdAt
   );
   const name = (id: string) => snapshot?.students.find((s) => s.id === id)?.name ?? "Student";
   const dateText = (date: string) =>
@@ -291,15 +298,15 @@ export function TrainingPage({
             {savedTrainingRecords.map((q, index) => (
               <Fragment key={q.id}>
                 {(index === 0 || savedTrainingRecords[index - 1]?.status !== q.status) && (
-                  <h3>{q.status === "FAILED" ? "Needs attention" : "Waiting to be sent"}</h3>
+                  <h3>{q.status === "PENDING" ? "Waiting to be sent" : "Needs attention"}</h3>
                 )}
                 <details
                   className={
-                    q.status === "FAILED"
+                    q.status !== "PENDING"
                       ? "saved-training-card saved-record-attention"
                       : "saved-training-card"
                   }
-                  open={q.id === data.queue[0]?.id && q.status === "FAILED" ? true : undefined}
+                  open={q.id === data.queue[0]?.id && q.status !== "PENDING" ? true : undefined}
                 >
                   <summary>
                     {(
@@ -327,7 +334,7 @@ export function TrainingPage({
                         ALLOWANCE: "Training trip fuel money"
                       } as Record<string, string>
                     )[q.action] ?? "Training record"}{" "}
-                    — {q.status === "FAILED" ? "Needs attention" : "Waiting to be sent"}
+                    — {q.status === "PENDING" ? "Waiting to be sent" : "Needs attention"}
                   </summary>
                   <p>
                     Saved{" "}
@@ -337,7 +344,14 @@ export function TrainingPage({
                       timeZone: "Africa/Lagos"
                     })}
                   </p>
-                  {q.status === "FAILED" && <p>{trainingSendError(q.error)}</p>}
+                  {q.status === "CONFLICT" ? (
+                    <p role="alert">
+                      {q.error} Edit the booking or cancel this saved change below. It will not be
+                      retried automatically.
+                    </p>
+                  ) : (
+                    q.status === "FAILED" && <p>{trainingSendError(q.error)}</p>
+                  )}
                   {q.error && (
                     <details>
                       <summary>Technical details</summary>
@@ -442,25 +456,29 @@ export function TrainingPage({
                         );
                       })}
                   </dl>
-                  {q.status === "FAILED" && (
+                  {q.status !== "PENDING" && (
                     <div className="fleet-actions">
-                      <button
-                        className="dm-secondary"
-                        onClick={() =>
-                          void db.trainingQueue
-                            .update(q.id, { status: "PENDING", attempts: 0, nextAttemptAt: 0 })
-                            .then(() => refresh())
-                        }
-                      >
-                        Try again
-                      </button>
+                      {q.status === "FAILED" && (
+                        <button
+                          className="dm-secondary"
+                          onClick={() =>
+                            void db.trainingQueue
+                              .update(q.id, { status: "PENDING", attempts: 0, nextAttemptAt: 0 })
+                              .then(() => refresh())
+                          }
+                        >
+                          Try again
+                        </button>
+                      )}
                       <button
                         className="dm-secondary"
                         onClick={() =>
                           void discardTraining(user, q.id).catch((e: Error) => setError(e.message))
                         }
                       >
-                        Remove this unsent change and later steps for this record
+                        {q.status === "CONFLICT"
+                          ? "Cancel this saved change and later steps for this record"
+                          : "Remove this unsent change and later steps for this record"}
                       </button>
                     </div>
                   )}
@@ -488,32 +506,64 @@ export function TrainingPage({
             confirmed lessons or bookings.
           </p>
           {office && (
-            <div className="training-tabs" role="group" aria-label="Training views">
+            <nav className="training-tabs" aria-label="Training views">
               {(
                 [
                   ["outings", "Today’s lessons"],
-                  ["students", "Student progress"],
-                  ["costs", "Costs and expenses"],
-                  ["registrations", "Registrations"],
-                  ["setup", "School setup"]
+                  ["students", "Student progress"]
                 ] as const
-              )
-                .filter(([id]) => id !== "costs" || owner)
-                .map(([id, label]) => (
-                  <button
-                    key={id}
-                    className={tab === id ? "dm-primary" : "dm-secondary"}
-                    aria-pressed={tab === id}
-                    onClick={() => {
-                      setTab(id);
-                      if (id === "setup") setSetupArea("");
-                      if (id === "outings") setOutingFilter("today");
-                    }}
-                  >
-                    {label}
-                  </button>
-                ))}
-            </div>
+              ).map(([id, label]) => (
+                <button
+                  key={id}
+                  className={tab === id ? "dm-primary" : "dm-secondary"}
+                  aria-current={tab === id ? "page" : undefined}
+                  onClick={() => {
+                    setTab(id);
+                    setMoreViewsOpen(false);
+                    if (id === "outings") setOutingFilter("today");
+                  }}
+                >
+                  {label}
+                </button>
+              ))}
+              <details
+                className="training-more-views"
+                open={moreViewsOpen}
+                onToggle={(event) => setMoreViewsOpen(event.currentTarget.open)}
+              >
+                <summary>
+                  {tab === "costs"
+                    ? "More views · Costs and expenses"
+                    : tab === "registrations"
+                      ? "More views · Registrations"
+                      : tab === "setup"
+                        ? "More views · School setup"
+                        : "More views"}
+                </summary>
+                <div>
+                  {(
+                    [
+                      ...(owner ? [["costs", "Costs and expenses"] as const] : []),
+                      ["registrations", "Registrations"],
+                      ["setup", "School setup"]
+                    ] as const
+                  ).map(([id, label]) => (
+                    <button
+                      key={id}
+                      className={tab === id ? "dm-primary" : "dm-secondary"}
+                      aria-current={tab === id ? "page" : undefined}
+                      onClick={() => {
+                        setTab(id);
+                        setMoreViewsOpen(true);
+                        if (id === "setup") setSetupArea("");
+                      }}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              </details>
+            </nav>
           )}
           {!student && (
             <DocumentReminders
@@ -1020,7 +1070,7 @@ export function TrainingPage({
                     id="setup-pay"
                     tabIndex={-1}
                     className="dm-panel training-panel training-setting"
-                    hidden={setupArea !== "people"}
+                    hidden={setupArea !== "people" || !snapshot.instructors.length}
                   >
                     <summary>Monthly instructor pay</summary>
                     <p>
@@ -1120,6 +1170,16 @@ export function TrainingPage({
                       </p>
                     </EntryForm>
                   </details>
+                  {!snapshot.instructors.length && (
+                    <section
+                      className="dm-panel training-panel training-setting"
+                      aria-labelledby="setup-pay-locked-title"
+                      hidden={setupArea !== "people"}
+                    >
+                      <h3 id="setup-pay-locked-title">Monthly instructor pay</h3>
+                      <p>Add your first instructor to unlock monthly pay setup.</p>
+                    </section>
+                  )}
                   <details
                     id="setup-accounts"
                     tabIndex={-1}
@@ -1148,7 +1208,10 @@ export function TrainingPage({
                                 role,
                                 name: value(f, "name"),
                                 phone: value(f, "phone"),
-                                password: value(f, "password")
+                                password: value(f, "password"),
+                                ...(role === "INSTRUCTOR"
+                                  ? { permitExpiryDate: value(f, "permitExpiryDate") }
+                                  : {})
                               }
                         );
                         setMessage(
@@ -1199,6 +1262,20 @@ export function TrainingPage({
                           <Field label="Phone number" name="phone" type="tel" />
                         </>
                       )}
+                      {accountRole === "INSTRUCTOR" && (
+                        <>
+                          <Field
+                            label="Instructor permit expiry date (optional)"
+                            name="permitExpiryDate"
+                            type="date"
+                            required={false}
+                          />
+                          <p>
+                            Add the date now if available. You can update it later in instructor
+                            details.
+                          </p>
+                        </>
+                      )}
                       <label>
                         Starting password (at least 10 characters)
                         <input
@@ -1212,7 +1289,18 @@ export function TrainingPage({
                       </label>
                     </EntryForm>
                   </details>
-                  {setupArea === "people" && <StaffAccounts onChanged={() => refresh()} />}
+                  {setupArea === "people" &&
+                    (snapshot.instructors.length ? (
+                      <StaffAccounts onChanged={() => refresh()} />
+                    ) : (
+                      <section
+                        className="dm-panel training-panel training-setting"
+                        aria-labelledby="setup-staff-locked-title"
+                      >
+                        <h3 id="setup-staff-locked-title">Manage staff access</h3>
+                        <p>Add your first instructor to unlock staff access management.</p>
+                      </section>
+                    ))}
                 </>
               )}
             </section>

@@ -55,3 +55,10 @@ Still required before declaring production ready: deploy the reviewed release an
 Batch 1 validation: 56 distinct frontend tests, 35 API unit/HTTP tests, and 13 PostgreSQL integration tests passed across targeted runs (104 total). Coverage includes storage failure before sending, exact refund retry after remount/reversal, initiating-owner mismatch, school-switch preservation, partial CSV failures and re-upload, concurrent imports, UUIDv8 API acceptance, IndexedDB upgrade, missing/stale tuition versions, and one-winner concurrent tuition writes. Typecheck passed. PostgreSQL tests used only localhost:55438/sync_test and stopped the temporary server afterward. No migration was applied to the configured application database.
 
 The full suite was run in Batch 4; subsequent snapshot changes received targeted regression checks. The previous review passed 292 frontend, 124 API, 75 shared and 50 database integration tests on the pre-Batch-1 snapshot. Deploy API and frontend together: direct PATCH calls now require `expectedVersion`, and adjustment POST calls require the initiating-owner header.
+
+## Phase 2 re-verification — 15 November 2026
+
+- `npm run build:shared`: passed; `npm run typecheck`: passed.
+- `npm run lint`: 0 errors, 12 warnings.
+- `npm test`: shared 75 passed; API unit/HTTP 135 passed (59 opt-in tests skipped); web 319 passed.
+- PostgreSQL integration tests: NOT RUN. The local server on `127.0.0.1:5432` required a password for `sync_test`; no configured or hosted database was used.

@@ -40,12 +40,15 @@ export function FirstDayOnboarding({
       <section className="dm-panel first-day first-day-compact" aria-labelledby="first-day-title">
         <div>
           <p className="dm-eyebrow">FIRST DAY</p>
-          <h2 id="first-day-title">Get DriveMaster ready</h2>
-          <p>Complete the basics before your first training.</p>
+          <h2 id="first-day-title">Launch your school</h2>
+          <p>Set up the essentials for your first lesson.</p>
         </div>
-        <button className="dm-primary" onClick={onSetup}>
-          Open School setup <ArrowRight size={16} />
-        </button>
+        <div>
+          <strong className="readiness-label readiness-needs-setup">Needs setup</strong>
+          <button className="dm-primary" onClick={onSetup}>
+            Set up my school <ArrowRight size={16} />
+          </button>
+        </div>
       </section>
     );
   }
@@ -55,25 +58,29 @@ export function FirstDayOnboarding({
   const hasStudent = ready.students || studentCount > 0;
   const steps = [
     {
-      label: "Training package",
-      done: ready.packages,
+      label: "Add first instructor",
+      done: ready.instructors,
       action: onSetup,
-      next: "Add training package"
+      next: "Add instructor"
     },
-    { label: "Instructor", done: ready.instructors, action: onSetup, next: "Add instructor" },
-    { label: "Training vehicle", done: ready.vehicles, action: onSetup, next: "Add vehicle" },
-    { label: "First student", done: hasStudent, action: onAddStudent, next: "Add first student" },
+    { label: "Add first vehicle", done: ready.vehicles, action: onSetup, next: "Add vehicle" },
     {
-      label: "Student package",
+      label: "Add first student",
+      done: hasStudent,
+      action: onAddStudent,
+      next: "Add first student"
+    },
+    {
+      label: "Assign student package",
       done: ready.enrollments,
       action: onSetup,
-      next: "Assign student package"
+      next: "Assign package"
     },
     {
-      label: "Monthly instructor pay",
-      done: ready.instructorPay,
-      action: onSetup,
-      next: "Set instructor pay"
+      label: "Book first lesson",
+      done: ready.firstBooking,
+      action: () => onTraining({ tab: "outings", filter: "today" }),
+      next: "Book first lesson"
     }
   ];
   const next = steps.find((step) => !step.done);
@@ -82,40 +89,48 @@ export function FirstDayOnboarding({
       <div className="first-day-heading">
         <div>
           <p className="dm-eyebrow">FIRST DAY</p>
-          <h2 id="first-day-title">Get DriveMaster ready</h2>
-          <p>Complete the basics before your first training.</p>
+          <h2 id="first-day-title">Launch your school</h2>
+          <p>Complete the essentials for your first lesson.</p>
         </div>
         <button
           className="dm-primary"
           onClick={next ? next.action : () => onTraining({ tab: "outings", filter: "today" })}
         >
-          {next?.next ?? "Book first training"} <ArrowRight size={16} />
+          {next?.next ?? "Book first lesson"} <ArrowRight size={16} />
         </button>
       </div>
-      <h3>Required before training</h3>
+      <h3>What you need before your first lesson</h3>
       <ol className="first-day-steps">
         {steps.map((step) => (
           <li className={step.done ? "is-ready" : ""} key={step.label}>
             <span>{step.done ? <Check size={16} /> : null}</span>
-            {step.label}
+            <span className="first-day-step-label">{step.label}</span>
+            <small
+              className={`readiness-label ${step.done ? "readiness-ready" : "readiness-needs-setup"}`}
+            >
+              {step.done ? "Ready" : "Needs setup"}
+            </small>
           </li>
         ))}
       </ol>
       <div className="first-day-optional">
         <span>
-          <strong>When useful</strong> — review school details and record a real payment only when a
-          student has paid.
+          <strong className="readiness-label readiness-later">Complete later</strong> — school
+          details and other admin can wait until after your first lesson.
         </span>
-        <div>
-          <button className="text-button" onClick={onSetup}>
-            Review school details
-          </button>
-          {hasStudent && !paymentCount && (
-            <button className="text-button" onClick={onRecordPayment}>
-              Record payment
+        <details className="first-day-more-actions">
+          <summary>Other actions</summary>
+          <div>
+            <button className="text-button" onClick={onSetup}>
+              Review setup
             </button>
-          )}
-        </div>
+            {hasStudent && !paymentCount && (
+              <button className="text-button" onClick={onRecordPayment}>
+                Record payment
+              </button>
+            )}
+          </div>
+        </details>
       </div>
     </section>
   );

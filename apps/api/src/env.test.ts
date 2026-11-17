@@ -1,8 +1,28 @@
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
-import { ensureEnvFile } from "./env.js";
+import { ensureEnvFile, loadEnv } from "./env.js";
+
+describe("loadEnv", () => {
+    it("rejects the example auth token placeholder in production", () => {
+        const example = readFileSync(new URL("../.env.example", import.meta.url), "utf8");
+        const authTokenSecret = example
+            .split(/\r?\n/)
+            .find((line) => line.startsWith("AUTH_TOKEN_SECRET="))
+            ?.slice("AUTH_TOKEN_SECRET=".length);
+
+        expect(authTokenSecret).toBeDefined();
+        expect(() =>
+            loadEnv({
+                NODE_ENV: "production",
+                DATABASE_URL: "postgresql://localhost/test",
+                WEB_ORIGIN: "https://example.test",
+                AUTH_TOKEN_SECRET: authTokenSecret
+            })
+        ).toThrow(/AUTH_TOKEN_SECRET must be replaced/i);
+    });
+});
 
 describe("ensureEnvFile", () => {
     it("throws a helpful message when the project .env file is missing", () => {

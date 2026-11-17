@@ -53,11 +53,11 @@ beforeEach(async () => {
 
 it("gives a completely new owner one clear way to begin", async () => {
   const actions = renderGuide();
-  fireEvent.click(await screen.findByRole("button", { name: /Open School setup/ }));
+  fireEvent.click(await screen.findByRole("button", { name: /Set up my school/ }));
   expect(actions.onSetup).toHaveBeenCalledOnce();
 });
 
-it("uses the existing readiness order and does not offer booking through a missing blocker", async () => {
+it("uses the simpler first-lesson readiness order and does not offer booking through a missing blocker", async () => {
   await cache({
     ...base,
     packages: [
@@ -67,7 +67,7 @@ it("uses the existing readiness order and does not offer booking through a missi
   });
   const actions = renderGuide();
   expect(await screen.findByRole("button", { name: /Add vehicle/ })).toBeVisible();
-  expect(screen.queryByRole("button", { name: /Book first training/ })).toBeNull();
+  expect(screen.queryByRole("button", { name: /Book first lesson/ })).toBeNull();
   fireEvent.click(screen.getByRole("button", { name: /Add vehicle/ }));
   expect(actions.onSetup).toHaveBeenCalledOnce();
 });
@@ -111,8 +111,9 @@ it("offers the first booking only after the existing required records are ready"
     ]
   });
   const actions = renderGuide({ studentCount: 1 });
-  fireEvent.click(await screen.findByRole("button", { name: /Book first training/ }));
+  fireEvent.click(await screen.findByRole("button", { name: /Book first lesson/ }));
   expect(actions.onTraining).toHaveBeenCalledWith({ tab: "outings", filter: "today" });
+  fireEvent.click(screen.getByText("Other actions"));
   expect(screen.getByRole("button", { name: "Record payment" })).toBeVisible();
 });
 
@@ -139,7 +140,7 @@ it("stays out of the way for operating schools and non-owners", async () => {
   const { rerender } = render(
     <FirstDayOnboarding user={user} studentCount={1} paymentCount={0} {...callbacks()} />
   );
-  expect(screen.queryByText("Get DriveMaster ready")).toBeNull();
+  expect(screen.queryByText("Launch your school")).toBeNull();
   rerender(
     <FirstDayOnboarding
       user={{ ...user, role: "RECEPTIONIST" }}
@@ -148,17 +149,17 @@ it("stays out of the way for operating schools and non-owners", async () => {
       {...callbacks()}
     />
   );
-  expect(screen.queryByText("Get DriveMaster ready")).toBeNull();
+  expect(screen.queryByText("Launch your school")).toBeNull();
 });
 
 it("keeps setup guidance after payments or multiple students when requirements are missing", async () => {
   await cache(base);
   const actions = renderGuide({ studentCount: 3, paymentCount: 5 });
-  fireEvent.click(await screen.findByRole("button", { name: "Add training package" }));
+  fireEvent.click(await screen.findByRole("button", { name: /Add instructor/ }));
   expect(actions.onSetup).toHaveBeenCalledOnce();
 });
 it("does not hide missing setup information just because money has been recorded", async () => {
   const actions = renderGuide({ studentCount: 8, paymentCount: 4 });
-  fireEvent.click(await screen.findByRole("button", { name: /Open School setup/ }));
+  fireEvent.click(await screen.findByRole("button", { name: /Set up my school/ }));
   expect(actions.onSetup).toHaveBeenCalledOnce();
 });

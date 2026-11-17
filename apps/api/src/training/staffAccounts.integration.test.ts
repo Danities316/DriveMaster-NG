@@ -1,4 +1,4 @@
-﻿import { randomInt, randomUUID } from "node:crypto";
+import { randomInt, randomUUID } from "node:crypto";
 import { PrismaClient } from "@prisma/client";
 import request from "supertest";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
@@ -80,6 +80,22 @@ describe.skipIf(!url)("Batch 2 access and SMS PostgreSQL", () => {
       password: "OfficePassword123"
     };
     await request(app).post("/api/training/accounts").set(headers()).send(input).expect(201);
+    const created = await db.user.findFirstOrThrow({
+      where: { schoolId, role: "RECEPTIONIST", name: input.name }
+    });
+    const createAudit = await db.auditLog.findFirstOrThrow({
+      where: { schoolId, entity: "training_account", entityId: created.id, action: "CREATE" }
+    });
+    expect(createAudit).toMatchObject({
+      schoolId,
+      userId: owner.id,
+      action: "CREATE",
+      entity: "training_account",
+      entityId: created.id
+    });
+    expect(createAudit.metadata).toEqual({
+      changedFields: ["name", "phone", "role", "studentId", "permitExpiryDate"]
+    });
     const listed = await request(app).get("/api/training/accounts").set(headers()).expect(200);
     expect(listed.body.accounts).toHaveLength(1);
     expect(listed.body.accounts[0]).toMatchObject({
@@ -96,6 +112,25 @@ describe.skipIf(!url)("Batch 2 access and SMS PostgreSQL", () => {
       .post("/api/training/accounts")
       .set(headers())
       .send({ ...input, phone: phone(), role: "OWNER" })
+      .expect(400);
+  });
+  it("saves an instructor permit expiry date at account creation and rejects invalid dates", async () => {
+    const input = {
+      role: "INSTRUCTOR",
+      name: "New instructor",
+      phone: phone(),
+      password: "InstructorPassword123",
+      permitExpiryDate: "2027-09-28"
+    };
+    await request(app).post("/api/training/accounts").set(headers()).send(input).expect(201);
+    const account = await db.user.findFirstOrThrow({
+      where: { schoolId, role: "INSTRUCTOR", phone: `+234${input.phone.slice(1)}` }
+    });
+    expect(account.permitExpiryDate).toBe(input.permitExpiryDate);
+    await request(app)
+      .post("/api/training/accounts")
+      .set(headers())
+      .send({ ...input, phone: phone(), permitExpiryDate: "2026-02-30" })
       .expect(400);
   });
   it("deactivates with an audit, revokes sessions/codes and keeps records; reactivation never revives old sessions", async () => {
@@ -131,14 +166,27 @@ describe.skipIf(!url)("Batch 2 access and SMS PostgreSQL", () => {
       .set(headers())
       .send({ isActive: false, expectedVersion: 0, reason: "Employee has left the school" })
       .expect(409);
-    expect(
-      await db.auditLog.count({ where: { schoolId, entityId: user.id, action: "DEACTIVATE" } })
-    ).toBe(1);
+    const deactivationAudit = await db.auditLog.findFirstOrThrow({
+      where: { schoolId, entityId: user.id, action: "DEACTIVATE" }
+    });
+    expect(deactivationAudit).toMatchObject({
+      schoolId,
+      userId: owner.id,
+      action: "DEACTIVATE",
+      entity: "STAFF_ACCOUNT",
+      entityId: user.id,
+      metadata: { changedFields: ["isActive", "sessionVersion"] }
+    });
     await request(app)
       .post(path)
       .set(headers())
       .send({ isActive: true, expectedVersion: 1, reason: "Employee has returned" })
       .expect(200);
+    expect(
+      await db.auditLog.count({
+        where: { schoolId, userId: owner.id, entityId: user.id, action: "REACTIVATE" }
+      })
+    ).toBe(1);
     await request(app).get("/api/auth/me").set("Cookie", oldCookie).expect(401);
     await request(app)
       .get("/api/auth/me")

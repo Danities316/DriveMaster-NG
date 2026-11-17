@@ -8,7 +8,7 @@ export interface QueuedTraining extends TrainingCommand {
   schoolId: string;
   role: string;
   createdAt: number;
-  status: "PENDING" | "FAILED";
+  status: "PENDING" | "FAILED" | "CONFLICT";
   attempts: number;
   nextAttemptAt: number;
   error?: string;
@@ -77,7 +77,8 @@ export async function trainingRequest(path: string, data?: unknown) {
           : (result?.error?.message ?? "Unable to send. Please try again.")
       ),
       {
-        status: response.status
+        status: response.status,
+        code: result?.error?.code
       }
     );
   return result;
@@ -283,9 +284,23 @@ async function performTrainingSend(
         entry.schoolId !== user.schoolId ||
         entry.role !== user.role ||
         entry.status === "FAILED" ||
-        (!options.force && entry.nextAttemptAt > Date.now())
+        entry.status === "CONFLICT"
       )
         break;
+      if (entry.attempts >= 5) {
+        const recorded = await db.transaction("rw", db.syncLease, db.trainingQueue, async () => {
+          if ((await db.syncLease.get("training"))?.owner !== owner) return false;
+          await db.trainingQueue.update(entry.id, {
+            status: "FAILED",
+            nextAttemptAt: 0,
+            error: entry.error ?? "This saved change could not be sent after five attempts."
+          });
+          return true;
+        });
+        if (!recorded) return superseded;
+        break;
+      }
+      if (!options.force && entry.nextAttemptAt > Date.now()) break;
       try {
         const { id, action, targetId, expectedVersion, data } = entry;
         await trainingRequest("commands", { id, action, targetId, expectedVersion, data });
@@ -313,16 +328,22 @@ async function performTrainingSend(
             message: "The signed-in account changed. Your unsent records have been kept."
           };
         const status = (reason as { status?: number }).status;
+        const code = (reason as { code?: string }).code;
         const attempts = entry.attempts + 1;
+        const conflict = status === 409 && code === "TRAINING_CONFLICT";
+        const permanentClientError =
+          status !== undefined &&
+          status >= 400 &&
+          status < 500 &&
+          ![401, 403, 408, 429].includes(status);
+        const terminal = conflict || permanentClientError || attempts >= 5;
+        const retryDelays = [5000, 30000, 120000, 600000];
         const recorded = await db.transaction("rw", db.syncLease, db.trainingQueue, async () => {
           if ((await db.syncLease.get("training"))?.owner !== owner) return false;
           await db.trainingQueue.update(entry.id, {
             attempts,
-            status:
-              status && status >= 400 && status < 500 && ![401, 403, 408, 429].includes(status)
-                ? "FAILED"
-                : "PENDING",
-            nextAttemptAt: Date.now() + Math.min(300000, 5000 * 2 ** Math.min(attempts, 6)),
+            status: conflict ? "CONFLICT" : terminal ? "FAILED" : "PENDING",
+            nextAttemptAt: terminal ? 0 : Date.now() + retryDelays[attempts - 1]!,
             error: reason instanceof Error ? reason.message : "Unable to send this change."
           });
           return true;
@@ -367,8 +388,8 @@ async function performTrainingSend(
     const first = remaining[0];
     if (first)
       return {
-        kind: first.status === "FAILED" ? "blocked" : "waiting",
-        message: `${remaining.length} saved record${remaining.length === 1 ? " is" : "s are"} still waiting. ${first.status === "FAILED" ? "The first record needs attention before later records can be sent." : "Sending is paused while the first record is tried again."} ${first.error ?? "Select Send saved records to try now."}`
+        kind: first.status === "PENDING" ? "waiting" : "blocked",
+        message: `${remaining.length} saved record${remaining.length === 1 ? " is" : "s are"} still waiting. ${first.status === "PENDING" ? "Sending is paused while the first record is tried again." : "The first record needs attention before later records can be sent."} ${first.error ?? "Select Send saved records to try now."}`
       };
     return {
       kind: "sent",
@@ -398,8 +419,13 @@ export function startTrainingSync(user: AuthenticatedUser) {
 export async function discardTraining(user: AuthenticatedUser, id: string) {
   await db.transaction("rw", db.trainingQueue, async () => {
     const row = await db.trainingQueue.get(id);
-    if (!row || row.userId !== user.id || row.schoolId !== user.schoolId || row.status !== "FAILED")
-      throw new Error("Only your failed saved changes can be removed.");
+    if (
+      !row ||
+      row.userId !== user.id ||
+      row.schoolId !== user.schoolId ||
+      !["FAILED", "CONFLICT"].includes(row.status)
+    )
+      throw new Error("Only your failed or conflicting saved changes can be removed.");
     const dependents = (await db.trainingQueue.where("userId").equals(user.id).toArray()).filter(
       (q) => q.targetId === row.targetId && q.createdAt >= row.createdAt
     );

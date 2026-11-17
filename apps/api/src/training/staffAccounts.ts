@@ -1,6 +1,7 @@
 ﻿import { z } from "zod";
 import { getPrismaClient } from "../prisma.js";
 import { KnownApiError } from "../middleware/errorHandler.js";
+import { writeAuditLog } from "../audit.js";
 export const staffAccessInput = z.object({
   isActive: z.boolean(),
   expectedVersion: z.number().int().nonnegative(),
@@ -46,22 +47,13 @@ export async function changeStaffAccess(
       where: { userId: target.id },
       data: { digest: null, delivered: false }
     });
-    await tx.auditLog.create({
-      data: {
-        schoolId,
-        userId: ownerId,
-        entity: "STAFF_ACCOUNT",
-        entityId: target.id,
-        action: input.isActive ? "REACTIVATE" : "DEACTIVATE",
-        metadata: {
-          role: target.role,
-          wasActive: target.isActive,
-          isActive: input.isActive,
-          reason: input.reason,
-          previousVersion: target.sessionVersion,
-          version: target.sessionVersion + 1
-        }
-      }
+    await writeAuditLog(tx, {
+      schoolId,
+      userId: ownerId,
+      entity: "STAFF_ACCOUNT",
+      entityId: target.id,
+      action: input.isActive ? "REACTIVATE" : "DEACTIVATE",
+      metadata: { changedFields: ["isActive", "sessionVersion"] }
     });
     return { success: true };
   });

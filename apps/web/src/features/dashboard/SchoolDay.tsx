@@ -4,6 +4,7 @@ import { ArrowRight, CircleAlert, Clock3, Wallet } from "lucide-react";
 import { db } from "../../db/db";
 import { DocumentReminders } from "../training/DocumentReminders";
 import type { SetupArea } from "../training/SchoolSetupHome";
+import { trainingSetupReadiness } from "../training/setupReadiness";
 import { matchesTrainingView, type TrainingView } from "../training/trainingViews";
 
 export type TrainingDestination = {
@@ -43,13 +44,13 @@ export function SchoolDay({
     return (
       <>
         <section className="dm-panel school-day">
-          <h2>Today&rsquo;s training</h2>
+          <h2>Training overview</h2>
           <p>Open Training to load today&rsquo;s lessons on this device.</p>
           <button
-            className="dm-primary"
-            onClick={() => onTraining({ tab: "outings", filter: "today", book: true })}
+            className="dm-secondary"
+            onClick={() => onTraining({ tab: "outings", filter: "today" })}
           >
-            Book a Training
+            Open training
           </button>
         </section>
         <Attention attention={attention} onSavedRecords={onSavedRecords} onStudents={onStudents} />
@@ -69,6 +70,17 @@ export function SchoolDay({
     .flatMap((outing) => outing.data.members)
     .filter((member) => member.status === "DISPUTED").length;
   const reminders = schoolDocumentReminders(snapshot, new Date());
+  const readiness = trainingSetupReadiness(snapshot);
+  const firstLessonPending =
+    user.role === "OWNER" &&
+    readiness.instructors &&
+    readiness.vehicles &&
+    readiness.packages &&
+    readiness.students &&
+    readiness.enrollments &&
+    readiness.instructorPay &&
+    !readiness.firstBooking;
+  const hasTodayTraining = counts.coming + counts.active + counts.completed > 0;
 
   return (
     <>
@@ -76,36 +88,40 @@ export function SchoolDay({
         <div className="panel-heading">
           <div>
             <p className="dm-eyebrow">TODAY</p>
-            <h2 id="school-day-title">Today&rsquo;s training</h2>
+            <h2 id="school-day-title">Training overview</h2>
           </div>
-          <div className="workflow-actions">
-            <button
-              className="dm-secondary"
-              onClick={() => onTraining({ tab: "outings", filter: "today" })}
-            >
-              Open Training <ArrowRight size={16} />
-            </button>
+          {!firstLessonPending ? (
             <button
               className="dm-primary"
-              onClick={() => onTraining({ tab: "outings", filter: "today", book: true })}
+              onClick={() =>
+                onTraining({
+                  tab: "outings",
+                  filter: "today",
+                  ...(!hasTodayTraining ? { book: true } : {})
+                })
+              }
             >
-              Book a Training
+              {hasTodayTraining ? "Open today’s training" : "Book training"}
+              <ArrowRight size={16} />
             </button>
-          </div>
+          ) : null}
         </div>
+        {firstLessonPending && (
+          <p>Follow the setup step above to unlock your first training booking.</p>
+        )}
         <div className="today-training-grid">
-          <button onClick={() => onTraining({ tab: "outings", filter: "today" })}>
+          <article>
             <strong>{counts.coming}</strong>
             <span>Coming up</span>
-          </button>
-          <button onClick={() => onTraining({ tab: "outings", filter: "today" })}>
+          </article>
+          <article>
             <strong>{counts.active}</strong>
             <span>Training now</span>
-          </button>
-          <button onClick={() => onTraining({ tab: "outings", filter: "today" })}>
+          </article>
+          <article>
             <strong>{counts.completed}</strong>
             <span>Completed</span>
-          </button>
+          </article>
         </div>
         <p className="dashboard-data-time">
           Based on training records loaded{" "}
@@ -201,7 +217,7 @@ function Attention({
             <strong>
               {disputes} lesson{disputes === 1 ? " was" : "s were"} reported with a problem
             </strong>
-            <small>Review the student response</small>
+            <small>Review student response</small>
           </span>
           <ArrowRight size={17} />
         </button>

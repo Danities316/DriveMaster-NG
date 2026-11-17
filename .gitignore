@@ -5,7 +5,13 @@ coverage
 .DS_Store
 *.log
 .env
-.env.*.local
+.env.*
+apps/**/.env*
+!**/.env.example
+
+# Compiled shared output must stay out of src
+shared/src/**/*.js
+shared/src/**/*.js.map
 
 # Vite
 apps/web/dist

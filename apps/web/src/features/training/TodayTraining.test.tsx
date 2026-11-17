@@ -154,7 +154,7 @@ it("keeps yesterday's unfinished training visible without a contradictory empty 
   expect(screen.getByText("Training from another date is still in progress.")).toBeVisible();
   expect(screen.queryByText("No training booked today")).toBeNull();
 });
-it.each(["PENDING", "FAILED"] as const)(
+it.each(["PENDING", "FAILED", "CONFLICT"] as const)(
   "keeps a %s offline start accurately labelled with only valid continuation",
   async (status) => {
     await cache({
@@ -174,7 +174,7 @@ it.each(["PENDING", "FAILED"] as const)(
       attempts: 0,
       createdAt: Date.now(),
       nextAttemptAt: 0,
-      ...(status === "FAILED" ? { error: "The vehicle already has a lesson at this time." } : {})
+      ...(status !== "PENDING" ? { error: "The vehicle already has a lesson at this time." } : {})
     });
     render(<TrainingPage user={user} />);
     const region = await screen.findByRole("region", {
@@ -186,10 +186,14 @@ it.each(["PENDING", "FAILED"] as const)(
         within(region).getByText("Training start saved on this device. Waiting to be sent.")
       ).toBeVisible();
       expect(within(region).getByRole("button", { name: "Finish training" })).toBeEnabled();
-    } else {
+    } else if (status === "FAILED") {
       expect(within(region).getByText(/A saved change needs attention/)).toBeVisible();
       expect(within(region).getByRole("button", { name: "Start training" })).toBeDisabled();
       expect(within(region).queryByRole("button", { name: "Finish training" })).toBeNull();
+    } else {
+      expect(within(region).getByText(/A saved change conflicts with the schedule/)).toBeVisible();
+      expect(within(region).getByRole("button", { name: "Start training" })).toBeDisabled();
+      expect(await screen.findByRole("alert")).toHaveTextContent(/vehicle already has a lesson/i);
     }
     expect(screen.queryByRole("region", { name: "Completed today" })).toBeNull();
   }

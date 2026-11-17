@@ -1,6 +1,8 @@
 import { getPrismaClient } from "../prisma.js";
 import { addMoney, ZERO_MONEY } from "@drivemaster/shared";
 import type { PaymentRecord, CreatePaymentInput } from "./paymentService.js";
+import { writeAuditLog } from "../audit.js";
+import { KnownApiError } from "../middleware/errorHandler.js";
 
 interface PrismaPaymentRow {
   entryType?: string;
@@ -47,6 +49,15 @@ export async function createPaymentRecord(
   const prisma = getPrismaClient();
   try {
     const created = await prisma.$transaction(async (tx) => {
+      if (
+        !actorId ||
+        !(await tx.user.findFirst({ where: { id: actorId, schoolId, isActive: true } }))
+      )
+        throw new KnownApiError(
+          "An active school staff account is required for financial writes.",
+          403,
+          "FORBIDDEN"
+        );
       const payment = await tx.payment.create({
         data: {
           recordedById: actorId,
@@ -61,15 +72,15 @@ export async function createPaymentRecord(
         }
       });
 
-      if (!actorId) throw new Error("Financial writes require an actor.");
-      await tx.auditLog.create({
-        data: {
-          schoolId,
-          userId: actorId,
-          action: "CREATE",
-          entity: "PAYMENT",
-          entityId: payment.id,
-          metadata: { amount: input.amount, studentId }
+      await writeAuditLog(tx, {
+        schoolId,
+        userId: actorId,
+        action: "CREATE",
+        entity: "PAYMENT",
+        entityId: payment.id,
+        metadata: {
+          entityIds: [studentId],
+          changedFields: ["studentId", "amount", "paymentDate", "method", "currency", "reference"]
         }
       });
       return payment;

@@ -6,6 +6,7 @@ import type {
   ListStudentsQuery
 } from "./studentService.js";
 import { KnownApiError } from "../middleware/errorHandler.js";
+import { writeAuditLog } from "../audit.js";
 
 interface PrismaStudentRow {
   version: number;
@@ -43,6 +44,11 @@ export async function createStudentRecord(
   const prisma = getPrismaClient();
   try {
     const created = await prisma.$transaction(async (tx) => {
+      if (
+        !actorId ||
+        !(await tx.user.findFirst({ where: { id: actorId, schoolId, isActive: true } }))
+      )
+        throw new KnownApiError("An active school staff account is required.", 403, "FORBIDDEN");
       const student = await tx.student.create({
         data: {
           // Honors the client-generated id (offline-first requirement, PRD
@@ -56,15 +62,14 @@ export async function createStudentRecord(
           totalTuition: input.totalTuition
         }
       });
-      if (!actorId) throw new Error("Student writes require an actor.");
-      await tx.auditLog.create({
-        data: {
-          schoolId,
-          userId: actorId,
-          action: "CREATE",
-          entity: "STUDENT",
-          entityId: student.id,
-          metadata: { totalTuition: input.totalTuition }
+      await writeAuditLog(tx, {
+        schoolId,
+        userId: actorId,
+        action: "CREATE",
+        entity: "STUDENT",
+        entityId: student.id,
+        metadata: {
+          changedFields: ["name", "phone", "licenseNumber", "enrollmentDate", "totalTuition"]
         }
       });
       return student;
@@ -132,6 +137,11 @@ export async function updateStudentRecord(
   const prisma = getPrismaClient();
   const updated = await prisma.$transaction(async (tx) => {
     await tx.$queryRaw`SELECT id FROM schools WHERE id = ${schoolId} FOR UPDATE`;
+    if (
+      !actorId ||
+      !(await tx.user.findFirst({ where: { id: actorId, schoolId, isActive: true } }))
+    )
+      throw new KnownApiError("An active school staff account is required.", 403, "FORBIDDEN");
     const before = await tx.student.findUniqueOrThrow({ where: { id, schoolId } });
     if (before.version !== expectedVersion)
       throw new KnownApiError(
@@ -151,25 +161,13 @@ export async function updateStudentRecord(
         ...(patch.totalTuition !== undefined ? { totalTuition: patch.totalTuition } : {})
       }
     });
-    if (!actorId) throw new Error("Student writes require an actor.");
-    await tx.auditLog.create({
-      data: {
-        schoolId,
-        userId: actorId,
-        action: "UPDATE",
-        entity: "STUDENT",
-        entityId: id,
-        metadata: {
-          before: {
-            name: before.name,
-            phone: before.phone,
-            totalTuition: before.totalTuition.toFixed(2),
-            licenseNumber: before.licenseNumber,
-            enrollmentDate: before.enrollmentDate.toISOString()
-          },
-          patch
-        }
-      }
+    await writeAuditLog(tx, {
+      schoolId,
+      userId: actorId,
+      action: "UPDATE",
+      entity: "STUDENT",
+      entityId: id,
+      metadata: { changedFields: Object.keys(patch) }
     });
     return student;
   });

@@ -4,7 +4,8 @@ import {
   FleetValidationError,
   parseFleetInput,
   validateOdometer,
-  parseFuelBenchmark
+  parseFuelBenchmark,
+  calculateFuelDiscrepancyAlert
 } from "@drivemaster/shared";
 import type {
   FleetEntity,
@@ -17,6 +18,7 @@ import type {
   VehicleInput
 } from "@drivemaster/shared";
 import { getPrismaClient } from "../prisma.js";
+import { writeAuditLog } from "../audit.js";
 import type { MutationOutcome } from "../sync/syncRepository.js";
 
 const json = (value: unknown): Prisma.InputJsonValue =>
@@ -93,7 +95,6 @@ export async function processFleetMutation(
             ? { status: "duplicate", result: receipt.result as unknown as SyncResult }
             : conflict("This change ID has already been used for different data.");
         const result: SyncResult = { mutationId: mutation.mutationId };
-        let benchmarkBefore: Prisma.JsonValue | undefined;
         if (benchmarkUpdate) {
           const vehicle = await tx.vehicle.findFirst({ where: { id: input.id, schoolId } });
           if (!vehicle) return { status: "failed", message: "Vehicle not found in this school." };
@@ -101,7 +102,6 @@ export async function processFleetMutation(
             return conflict(
               "The benchmark changed on another device. Synchronize and discard this proposal before editing the latest settings."
             );
-          benchmarkBefore = vehicle.fuelBenchmark;
           result.vehicle = toVehicle(
             await tx.vehicle.update({
               where: { id: vehicle.id },
@@ -145,6 +145,7 @@ export async function processFleetMutation(
               where: { schoolId, vehicleId: reading.vehicleId },
               select: {
                 date: true,
+                createdAt: true,
                 odometer: true,
                 receiptReference: true,
                 litres: true,
@@ -196,8 +197,31 @@ export async function processFleetMutation(
               return conflict(
                 "This fuel reference or matching claim has already been recorded for this vehicle."
               );
+            const createdAt = new Date();
+            const discrepancyAlert = calculateFuelDiscrepancyAlert(
+              {
+                ...claim,
+                schoolId,
+                createdAt: createdAt.toISOString()
+              },
+              fuel.map((row) => ({
+                schoolId,
+                vehicleId: claim.vehicleId,
+                date: row.date.toISOString(),
+                createdAt: row.createdAt.toISOString(),
+                odometer: row.odometer,
+                cost: row.cost.toFixed(2)
+              }))
+            );
             const row = await tx.fuelLog.create({
-              data: { ...claim, schoolId, recordedById: userId, date: new Date(claim.date) }
+              data: {
+                ...claim,
+                schoolId,
+                recordedById: userId,
+                date: new Date(claim.date),
+                createdAt,
+                discrepancyAlert
+              }
             });
             result.fuelLog = {
               ...row,
@@ -212,24 +236,14 @@ export async function processFleetMutation(
         await tx.syncChange.create({
           data: { schoolId, entity: mutation.entity, action: mutation.action, record: json(record) }
         });
-        await tx.auditLog.create({
-          data: {
-            schoolId,
-            userId,
-            action: mutation.action,
-            entity: mutation.entity,
-            entityId: record.id,
-            metadata: {
-              mutationId: mutation.mutationId,
-              deviceId: mutation.deviceId,
-              ...(benchmarkUpdate
-                ? {
-                    benchmarkBefore: benchmarkBefore ?? null,
-                    benchmarkAfter: json(benchmark),
-                    benchmarkVersion: result.vehicle!.benchmarkVersion!
-                  }
-                : {})
-            }
+        await writeAuditLog(tx, {
+          schoolId,
+          userId,
+          action: mutation.action,
+          entity: mutation.entity,
+          entityId: record.id,
+          metadata: {
+            changedFields: Object.keys(input).filter((field) => field !== "id")
           }
         });
         await tx.syncReceipt.create({

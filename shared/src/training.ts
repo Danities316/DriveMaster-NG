@@ -149,7 +149,13 @@ export interface TrainingSnapshot {
     version?: number;
   }[];
   instructors: { id: string; name: string }[];
-  vehicles: { id: string; plateNumber: string }[];
+  vehicles: {
+    id: string;
+    plateNumber: string;
+    insuranceExpiryDate?: string | null;
+    vehicleLicenceExpiryDate?: string | null;
+    roadworthinessExpiryDate?: string | null;
+  }[];
   summaries: StudentTrainingSummary[];
   lessons: StudentLessonView[];
 }

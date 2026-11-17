@@ -145,13 +145,15 @@ export function TrainingTripCard({
       )}
       {pending && (
         <p className="trip-save-status" role="status">
-          {changes.some((c) => c.status === "FAILED")
-            ? "A saved change needs attention. Open Saved training records above."
-            : savedAction === "START"
-              ? "Training start saved on this device. Waiting to be sent."
-              : savedAction === "FINISH"
-                ? "Training finish saved on this device. Waiting to be sent."
-                : "Saved on this device. Waiting to be sent."}
+          {changes.some((c) => c.status === "CONFLICT")
+            ? "A saved change conflicts with the schedule. Open Saved training records above to review or cancel it."
+            : changes.some((c) => c.status === "FAILED")
+              ? "A saved change needs attention. Open Saved training records above."
+              : savedAction === "START"
+                ? "Training start saved on this device. Waiting to be sent."
+                : savedAction === "FINISH"
+                  ? "Training finish saved on this device. Waiting to be sent."
+                  : "Saved on this device. Waiting to be sent."}
         </p>
       )}
       {!pending && (o.status === "STARTED" || o.status === "COMPLETED") && (

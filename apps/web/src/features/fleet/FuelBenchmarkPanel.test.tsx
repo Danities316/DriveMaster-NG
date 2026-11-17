@@ -1,9 +1,10 @@
-import { beforeEach, expect, it } from "vitest";
+import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { db } from "../../db/db";
 import { FleetPage } from "./FleetPage";
 const user = { id: "u", schoolId: "s", name: "Owner", phone: "test", role: "OWNER" as const };
 beforeEach(async () => {
+  vi.stubEnv("VITE_FUEL_BENCHMARKS_ENABLED", "true");
   for (const table of db.tables) await table.clear();
   await db.vehicles.put({
     id: "v",
@@ -14,6 +15,9 @@ beforeEach(async () => {
     createdAt: "2026-01-01",
     updatedAt: "2026-01-01"
   });
+});
+afterEach(() => {
+  vi.unstubAllEnvs();
 });
 it("lets an owner configure a benchmark while keeping it pending until synchronized", async () => {
   render(<FleetPage user={user} />);

@@ -101,6 +101,18 @@ describe("StudentListPage", () => {
     expect(onAddStudent).toHaveBeenCalled();
   });
 
+  it("keeps CSV import available but tucked away until requested", async () => {
+    render(
+      <StudentListPage schoolId={SCHOOL_ID} onSelectStudent={() => {}} onAddStudent={() => {}} />
+    );
+
+    const importDetails = screen.getByText("Import students from a CSV file").closest("details")!;
+    expect(importDetails).not.toHaveAttribute("open");
+    expect(screen.getByText(/Use an Excel or Google Sheets file/)).not.toBeVisible();
+    fireEvent.click(screen.getByText("Import students from a CSV file"));
+    expect(await screen.findByText(/Use an Excel or Google Sheets file/)).toBeVisible();
+  });
+
   it("shows an empty state when there are no students at all", async () => {
     await db.students.clear();
     const onAddStudent = vi.fn();

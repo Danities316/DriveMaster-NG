@@ -370,15 +370,18 @@ model Payment {
 // ==================================================
 
 model Vehicle {
-  fuelBenchmark    Json?
-  benchmarkVersion Int           @default(0)
-  id               String        @id @default(uuid())
-  schoolId         String
-  plateNumber      String
-  model            String
-  status           VehicleStatus
-  createdAt        DateTime      @default(now())
-  updatedAt        DateTime      @updatedAt
+  insuranceExpiryDate       String?
+  vehicleLicenceExpiryDate  String?
+  roadworthinessExpiryDate  String?
+  fuelBenchmark             Json?
+  benchmarkVersion          Int           @default(0)
+  id                        String        @id @default(uuid())
+  schoolId                  String
+  plateNumber               String
+  model                     String
+  status                    VehicleStatus
+  createdAt                 DateTime      @default(now())
+  updatedAt                 DateTime      @updatedAt
 
   school      School           @relation(fields: [schoolId], references: [id], onDelete: Restrict)
   mileageLogs MileageLog[]

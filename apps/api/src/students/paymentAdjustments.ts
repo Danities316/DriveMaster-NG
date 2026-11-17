@@ -4,6 +4,7 @@ import type { Payment as DbPayment, Prisma } from "@prisma/client";
 import { isValidStoredMoney, normalizeMoney, sumMoney, subtractMoney } from "@drivemaster/shared";
 import { getPrismaClient } from "../prisma.js";
 import { KnownApiError } from "../middleware/errorHandler.js";
+import { writeAuditLog } from "../audit.js";
 
 const positive = z
   .string()
@@ -209,18 +210,18 @@ export async function adjustPayment(
           }
         })
       );
-    await tx.auditLog.create({
-      data: {
-        schoolId,
-        userId,
-        action: input.action,
-        entity: "PAYMENT",
-        entityId: r.root.id,
-        metadata: {
-          adjustmentId: input.id,
-          reason: input.reason,
-          entries: entries.map(paymentJson)
-        }
+    await writeAuditLog(tx, {
+      schoolId,
+      userId,
+      action: input.action,
+      entity: "PAYMENT",
+      entityId: r.root.id,
+      metadata: {
+        entityIds: [input.id, ...entries.map((entry) => entry.id)],
+        changedFields: [
+          "amount",
+          ...(input.action === "CORRECT" ? ["studentId", "method", "reference", "paymentDate"] : [])
+        ]
       }
     });
     return { payments: entries.sort((a, b) => a.id.localeCompare(b.id)).map(paymentJson) };

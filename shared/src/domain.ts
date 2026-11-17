@@ -129,6 +129,9 @@ export interface Vehicle {
   schoolId: string;
   plateNumber: string;
   model: string;
+  insuranceExpiryDate?: string | null;
+  vehicleLicenceExpiryDate?: string | null;
+  roadworthinessExpiryDate?: string | null;
   status: VehicleStatus;
   createdAt: string;
   updatedAt: string;

@@ -1,11 +1,15 @@
 import { isValidDate } from "./validation.js";
 import { isValidStoredMoney, normalizeMoney } from "./money.js";
+import { validPermitDate } from "./schoolRules.js";
 
 export type FleetEntity = "vehicle" | "mileage_log" | "fuel_log";
 export interface VehicleInput {
   id: string;
   plateNumber: string;
   model: string;
+  insuranceExpiryDate: string | null;
+  vehicleLicenceExpiryDate: string | null;
+  roadworthinessExpiryDate: string | null;
 }
 export interface MileageInput {
   id: string;
@@ -54,7 +58,20 @@ export function parseFleetInput(
       .replace(/[\s-]/g, "");
     if (!/^[A-Z0-9]{3,20}$/.test(plateNumber))
       fail("Registration number must contain 3–20 letters or numbers.");
-    return { id, plateNumber, model: text(row.model, "Vehicle model", 100) };
+    const expiry = (field: string, label: string) => {
+      const value = row[field] ?? "";
+      if (typeof value !== "string" || (value !== "" && !validPermitDate(value)))
+        fail(`Enter a real ${label} expiry date.`);
+      return typeof value === "string" && value ? value : null;
+    };
+    return {
+      id,
+      plateNumber,
+      model: text(row.model, "Vehicle model", 100),
+      insuranceExpiryDate: expiry("insuranceExpiryDate", "insurance"),
+      vehicleLicenceExpiryDate: expiry("vehicleLicenceExpiryDate", "vehicle licence"),
+      roadworthinessExpiryDate: expiry("roadworthinessExpiryDate", "roadworthiness")
+    };
   }
   const vehicleId = text(row.vehicleId, "Vehicle", 100);
   const date = text(row.date, "Date and time", 40);

@@ -278,9 +278,14 @@ describe.skipIf(!url)("training PostgreSQL workflow", () => {
     await send("VEHICLE_DOCUMENTS", docs, {
       vehicleId,
       insuranceExpiryDate: "2026-01-01",
+      vehicleLicenceExpiryDate: "2026-06-30",
       roadworthinessExpiryDate: "2026-12-31",
       reason: "Read documents"
     });
+    const savedVehicle = await client.vehicle.findUnique({ where: { id: vehicleId } });
+    expect(savedVehicle?.insuranceExpiryDate).toBe("2026-01-01");
+    expect(savedVehicle?.vehicleLicenceExpiryDate).toBe("2026-06-30");
+    expect(savedVehicle?.roadworthinessExpiryDate).toBe("2026-12-31");
     const trip = await book();
     await send("SCHOOL_RULES", rules, {
       ...DEFAULT_SCHOOL_RULES,
@@ -407,6 +412,136 @@ describe.skipIf(!url)("training PostgreSQL workflow", () => {
     const outcomes = await Promise.allSettled(attempts);
     expect(outcomes.filter((r) => r.status === "fulfilled")).toHaveLength(1);
     await expect(book([studentIds[0]!, studentIds[0]!])).rejects.toThrow(/only once/);
+  });
+  it("returns success for duplicate delivery of the same booking command", async () => {
+    const command = entry("BOOK", randomUUID(), {
+      instructorId,
+      vehicleId,
+      plannedStart: "2026-01-02T10:00:00Z",
+      studentIds: [studentIds[0]]
+    });
+    await expect(executeTraining(schoolId, ownerId, command)).resolves.toEqual({ success: true });
+    await expect(executeTraining(schoolId, ownerId, command)).resolves.toEqual({ success: true });
+    expect(await client.trainingRecord.count({ where: { id: command.targetId, schoolId } })).toBe(
+      1
+    );
+    expect(await client.trainingReceipt.count({ where: { id: command.id } })).toBe(1);
+    const bookingAudit = await client.auditLog.findFirstOrThrow({
+      where: {
+        schoolId,
+        userId: ownerId,
+        action: "BOOK",
+        entity: "training_outing",
+        entityId: command.targetId
+      }
+    });
+    expect(bookingAudit).toMatchObject({
+      schoolId,
+      userId: ownerId,
+      action: "BOOK",
+      entity: "training_outing",
+      entityId: command.targetId
+    });
+    expect(bookingAudit.metadata).toMatchObject({
+      changedFields: expect.arrayContaining(["instructorId", "vehicleId", "status"])
+    });
+    const cancel = entry("CANCEL", command.targetId, { reason: "School changed the schedule" }, 0);
+    await expect(executeTraining(schoolId, ownerId, cancel)).resolves.toEqual({ success: true });
+    const statusAudit = await client.auditLog.findFirstOrThrow({
+      where: {
+        schoolId,
+        userId: ownerId,
+        action: "CANCEL",
+        entity: "training_outing",
+        entityId: command.targetId
+      }
+    });
+    expect(statusAudit.metadata).toMatchObject({
+      changedFields: expect.arrayContaining(["status", "changeReason", "members"])
+    });
+    const auditsBeforeInvalid = await client.auditLog.count({ where: { schoolId } });
+    await expect(
+      executeTraining(schoolId, ownerId, entry("CANCEL", command.targetId, { reason: "" }, 1))
+    ).rejects.toThrow();
+    expect(await client.auditLog.count({ where: { schoolId } })).toBe(auditsBeforeInvalid);
+  });
+  it("reports vehicle, instructor and student overlaps as TRAINING_CONFLICT", async () => {
+    await book([studentIds[0]!]);
+    const otherInstructorId = randomUUID();
+    const otherVehicleId = randomUUID();
+    await client.user.create({
+      data: {
+        id: otherInstructorId,
+        schoolId,
+        name: "Other instructor",
+        phone: randomUUID(),
+        passwordHash: "test",
+        role: "INSTRUCTOR"
+      }
+    });
+    await client.vehicle.create({
+      data: {
+        id: otherVehicleId,
+        schoolId,
+        plateNumber: "TEST-456",
+        model: "Other car",
+        status: "ACTIVE"
+      }
+    });
+    const expectConflict = async (
+      input: { instructorId: string; vehicleId: string; studentIds: string[] },
+      resource: string
+    ) => {
+      await expect(
+        send("BOOK", randomUUID(), {
+          ...input,
+          plannedStart: "2026-01-02T10:00:00Z"
+        })
+      ).rejects.toMatchObject({
+        code: "TRAINING_CONFLICT",
+        statusCode: 409,
+        message: expect.stringMatching(new RegExp(resource))
+      });
+    };
+    await expectConflict(
+      { instructorId: otherInstructorId, vehicleId, studentIds: [studentIds[1]!] },
+      "vehicle"
+    );
+    await expectConflict(
+      { instructorId, vehicleId: otherVehicleId, studentIds: [studentIds[1]!] },
+      "instructor"
+    );
+    await expectConflict(
+      { instructorId: otherInstructorId, vehicleId: otherVehicleId, studentIds: [studentIds[0]!] },
+      "student"
+    );
+    expect(
+      await client.auditLog.count({
+        where: { schoolId, action: "BOOK", entity: "training_outing" }
+      })
+    ).toBe(1);
+  });
+  it("does not expose or modify outings across school boundaries", async () => {
+    const outingId = await book([studentIds[0]!]);
+    const otherSchool = await client.school.create({
+      data: { name: "Other school", phone: randomUUID(), address: "Other" }
+    });
+    const otherOwner = await client.user.create({
+      data: {
+        schoolId: otherSchool.id,
+        name: "Other owner",
+        phone: randomUUID(),
+        passwordHash: "test",
+        role: "OWNER"
+      }
+    });
+    await expect(trainingSnapshot(otherSchool.id, ownerId)).rejects.toThrow(/sign in again/);
+    await expect(trainingSnapshot(schoolId, otherOwner.id)).rejects.toThrow(/sign in again/);
+    await expect(
+      executeTraining(otherSchool.id, ownerId, entry("CANCEL", outingId, { reason: "Cancel" }, 0))
+    ).rejects.toThrow(/sign in again/);
+    const stored = await client.trainingRecord.findUnique({ where: { id: outingId } });
+    expect((stored!.data as unknown as TrainingOuting).status).toBe("BOOKED");
   });
   it("edits allowance defaults without changing old bookings and audits an outing override", async () => {
     const settingsId = randomUUID();

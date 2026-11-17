@@ -62,6 +62,7 @@ export * from "./fleet.js";
 export * from "./fuelConsumption.js";
 
 export * from "./fuelBenchmark.js";
+export * from "./fuelDiscrepancy.js";
 
 export * from "./training.js";
 export * from "./schoolRules.js";

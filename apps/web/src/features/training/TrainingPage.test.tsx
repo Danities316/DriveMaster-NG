@@ -68,6 +68,38 @@ it("gives students a simple private confirmation form", async () => {
     data: { attended: false, reason: "The lesson did not take place" }
   });
 });
+it("shows a conflicting saved booking and lets the owner cancel it", async () => {
+  const owner: AuthenticatedUser = { ...student, id: "owner", role: "OWNER" };
+  const ownerSnapshot = { ...snapshot, userId: owner.id, viewerRole: owner.role, lessons: [] };
+  localStorage.setItem("drivemaster:lastKnownUser", JSON.stringify(owner));
+  await db.trainingCache.put({
+    userId: owner.id,
+    schoolId: owner.schoolId,
+    snapshot: ownerSnapshot,
+    loadedAt: "2026-01-02"
+  });
+  await db.trainingQueue.put({
+    id: "conflicting-booking",
+    targetId: "outing",
+    action: "BOOK",
+    data: {},
+    userId: owner.id,
+    schoolId: owner.schoolId,
+    role: owner.role,
+    status: "CONFLICT",
+    createdAt: Date.now(),
+    attempts: 1,
+    nextAttemptAt: 0,
+    error: "This outing conflicts with an existing lesson because the vehicle is already booked."
+  });
+  vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, json: async () => ownerSnapshot }));
+  render(<TrainingPage user={owner} />);
+  expect(await screen.findByRole("alert")).toHaveTextContent(/vehicle is already booked/i);
+  fireEvent.click(
+    screen.getByRole("button", { name: "Cancel this saved change and later steps for this record" })
+  );
+  await waitFor(async () => expect(await db.trainingQueue.count()).toBe(0));
+});
 it("lets an owner change the default fuel amount and explains existing bookings", async () => {
   const owner: AuthenticatedUser = { ...student, id: "owner", role: "OWNER" };
   await db.trainingCache.put({
@@ -77,7 +109,9 @@ it("lets an owner change the default fuel amount and explains existing bookings"
     loadedAt: "2026-01-02"
   });
   render(<TrainingPage user={owner} />);
+  fireEvent.click(await screen.findByText("More views"));
   fireEvent.click(await screen.findByRole("button", { name: "School setup" }));
+  fireEvent.click(await screen.findByText(/Other setup areas/));
   fireEvent.click(screen.getByRole("button", { name: "Open Costs & rules" }));
   fireEvent.click(
     screen.getByText("Fuel money for each attending student", { selector: "summary" })
@@ -119,6 +153,7 @@ it("guides setup to instructor accounts and connects student and vehicle creatio
   );
   fireEvent.click(await screen.findByRole("button", { name: "Set up Add your instructors" }));
   expect(screen.getByLabelText("Account type")).toHaveValue("INSTRUCTOR");
+  expect(screen.getByLabelText("Instructor permit expiry date (optional)")).toBeVisible();
   expect(screen.queryByLabelText("Student record (for student accounts)")).not.toBeInTheDocument();
   fireEvent.click(screen.getByRole("button", { name: "Back to School setup" }));
   fireEvent.click(screen.getByRole("button", { name: "Set up Add a training vehicle" }));
@@ -163,6 +198,11 @@ it("creates student access from an eligible registered student without duplicate
   fireEvent.click(
     screen.getByText("Create instructor, receptionist or student access", { selector: "summary" })
   );
+  expect(screen.getByText("Add your first instructor to unlock monthly pay setup.")).toBeVisible();
+  expect(
+    screen.getByText("Add your first instructor to unlock staff access management.")
+  ).toBeVisible();
+  expect(screen.queryByRole("button", { name: /Load staff accounts/ })).toBeNull();
   expect(screen.getByLabelText("Student record (for student accounts)")).toHaveTextContent(
     "Eligible Student · 08012345678"
   );
@@ -174,6 +214,31 @@ it("creates student access from an eligible registered student without duplicate
   fireEvent.change(screen.getByLabelText("Account type"), { target: { value: "INSTRUCTOR" } });
   expect(screen.getByLabelText("Name")).toBeVisible();
   expect(screen.getByLabelText("Phone number")).toBeVisible();
+  expect(screen.getByLabelText("Instructor permit expiry date (optional)")).toBeVisible();
+});
+
+it("unlocks staff management and monthly pay after an instructor exists", async () => {
+  const owner: AuthenticatedUser = { ...student, id: "owner", role: "OWNER" };
+  await db.trainingCache.put({
+    userId: owner.id,
+    schoolId: owner.schoolId,
+    snapshot: {
+      ...snapshot,
+      userId: owner.id,
+      viewerRole: owner.role,
+      lessons: [],
+      instructors: [{ id: "instructor", name: "Mr Ade" }]
+    },
+    loadedAt: "2026-01-02"
+  });
+  render(<TrainingPage user={owner} initialTab="setup" />);
+  fireEvent.click(await screen.findByRole("button", { name: "Open People" }));
+  expect(screen.getByText("Monthly instructor pay", { selector: "summary" })).toBeVisible();
+  expect(screen.getByText("Manage staff access", { selector: "summary" })).toBeVisible();
+  expect(screen.queryByText("Add your first instructor to unlock monthly pay setup.")).toBeNull();
+  expect(
+    screen.queryByText("Add your first instructor to unlock staff access management.")
+  ).toBeNull();
 });
 
 it("organizes owner setup into clear areas and keeps package terms visible", async () => {
@@ -198,6 +263,7 @@ it("organizes owner setup into clear areas and keeps package terms visible", asy
   });
   const { container } = render(<TrainingPage user={owner} initialTab="setup" />);
   expect(await screen.findByRole("heading", { name: "School setup" })).toBeVisible();
+  fireEvent.click(screen.getByText(/Other setup areas/));
   for (const area of [
     "School profile",
     "Training",
@@ -208,7 +274,7 @@ it("organizes owner setup into clear areas and keeps package terms visible", asy
   ]) {
     expect(screen.getByRole("button", { name: `Open ${area}` })).toBeVisible();
   }
-  expect(screen.getByText("1 training package set up")).toBeVisible();
+  expect(screen.getByText("Assign a student package")).toBeVisible();
   expect(screen.getByText("Required to operate")).toBeVisible();
   expect(screen.getByText("Useful configuration")).toBeVisible();
   expect(container.querySelector("table")).toBeNull();
@@ -221,18 +287,21 @@ it("organizes owner setup into clear areas and keeps package terms visible", asy
   expect(screen.getByText(/Later package changes do not change this agreement/)).toBeVisible();
   fireEvent.click(screen.getByRole("button", { name: "Back to School setup" }));
   fireEvent.click(screen.getByRole("button", { name: "Open People" }));
-  expect(screen.getByText("Monthly instructor pay", { selector: "summary" })).toBeVisible();
+  expect(screen.getByText("Add your first instructor to unlock monthly pay setup.")).toBeVisible();
   fireEvent.click(screen.getByRole("button", { name: "Back to School setup" }));
+  fireEvent.click(screen.getByText(/Other setup areas/));
   fireEvent.click(screen.getByRole("button", { name: "Open Vehicles" }));
   expect(
     screen.getByText("Vehicle insurance and roadworthiness dates", { selector: "summary" })
   ).toBeVisible();
   fireEvent.click(screen.getByRole("button", { name: "Back to School setup" }));
+  fireEvent.click(screen.getByText(/Other setup areas/));
   fireEvent.click(screen.getByRole("button", { name: "Open Registration" }));
   expect(
     screen.getByText("QR enrollment: let students register themselves", { selector: "summary" })
   ).toBeVisible();
   fireEvent.click(screen.getByRole("button", { name: "Back to School setup" }));
+  fireEvent.click(screen.getByText(/Other setup areas/));
   fireEvent.click(screen.getByRole("button", { name: "Open Costs & rules" }));
   fireEvent.click(screen.getByText("School rules", { selector: "summary" }));
   expect(screen.getByText(/Your school target is/)).toBeVisible();
@@ -248,6 +317,7 @@ it("does not give non-owners owner-only School setup areas", async () => {
     loadedAt: "2026-01-02"
   });
   render(<TrainingPage user={receptionist} initialTab="setup" />);
+  fireEvent.click(await screen.findByText(/Other setup areas/));
   expect(await screen.findByRole("button", { name: "Open Training" })).toBeVisible();
   expect(screen.getByRole("button", { name: "Open Vehicles" })).toBeVisible();
   expect(screen.queryByRole("button", { name: "Open People" })).toBeNull();

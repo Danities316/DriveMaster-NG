@@ -2,6 +2,7 @@ import { lagosDay, type SchoolRules } from "./schoolRules.js";
 export interface VehicleDocuments {
   vehicleId: string;
   insuranceExpiryDate: string | null;
+  vehicleLicenceExpiryDate?: string | null;
   roadworthinessExpiryDate: string | null;
   reason: string;
 }
@@ -71,6 +72,14 @@ export function vehicleDocumentIssues(
       rules.vehicleReminderDays ?? 30,
       rules.vehicleExpiryAction ?? "WARN",
       day
+    ),
+    expiryReminder(
+      "vehicle-licence",
+      "Vehicle licence",
+      documents?.vehicleLicenceExpiryDate ?? null,
+      rules.vehicleReminderDays ?? 30,
+      rules.vehicleExpiryAction ?? "WARN",
+      day
     )
   ].filter((r): r is DocumentReminder => r !== null);
 }
@@ -79,7 +88,13 @@ export function schoolDocumentReminders(
     schoolRules?: { data: SchoolRules } | null;
     instructorPermitDates?: { instructorId: string; expiresOn: string | null }[];
     instructors: { id: string; name: string }[];
-    vehicles: { id: string; plateNumber: string }[];
+    vehicles: {
+      id: string;
+      plateNumber: string;
+      insuranceExpiryDate?: string | null;
+      vehicleLicenceExpiryDate?: string | null;
+      roadworthinessExpiryDate?: string | null;
+    }[];
     vehicleDocuments?: { data: VehicleDocuments }[];
   },
   now = new Date()
@@ -105,12 +120,15 @@ export function schoolDocumentReminders(
       const docs = snapshot.vehicleDocuments.find((r) => r.data.vehicleId === vehicle.id)?.data;
       for (const [field, label] of [
         ["insuranceExpiryDate", "insurance"],
+        ["vehicleLicenceExpiryDate", "vehicle licence"],
         ["roadworthinessExpiryDate", "roadworthiness"]
       ] as const) {
+        const vehicleExpiry = vehicle[field];
+        const documentExpiry = docs?.[field];
         const reminder = expiryReminder(
           `${vehicle.id}-${field}`,
           `${vehicle.plateNumber}: ${label}`,
-          docs?.[field] ?? null,
+          vehicleExpiry ?? documentExpiry ?? null,
           rules?.vehicleReminderDays ?? 30,
           rules?.vehicleExpiryAction ?? "WARN",
           day

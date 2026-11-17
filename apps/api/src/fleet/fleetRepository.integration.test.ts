@@ -72,7 +72,23 @@ describe.skipIf(!url)("fleet PostgreSQL workflow", () => {
       ["duplicate", "processed"]
     );
     expect(await client.fuelLog.count({ where: { schoolId } })).toBe(1);
-    expect(await client.auditLog.count({ where: { schoolId, entity: "fuel_log" } })).toBe(1);
+    const audit = await client.auditLog.findFirstOrThrow({
+      where: {
+        schoolId,
+        entity: "fuel_log",
+        entityId: (entry.payload as { id: string }).id
+      }
+    });
+    expect(audit).toMatchObject({
+      schoolId,
+      userId,
+      action: "CREATE",
+      entity: "fuel_log",
+      entityId: (entry.payload as { id: string }).id
+    });
+    expect(audit.metadata).toMatchObject({
+      changedFields: expect.arrayContaining(["vehicleId", "date", "odometer", "cost"])
+    });
     const changes = await pullChanges(schoolId, "0", 100);
     expect(changes.changes).toHaveLength(2);
     expect(changes.changes[1]?.record).toMatchObject({
@@ -82,6 +98,54 @@ describe.skipIf(!url)("fleet PostgreSQL workflow", () => {
       fullTank: true,
       recordedById: userId
     });
+  });
+  it("calculates authoritative discrepancy alerts and deduplicates delivery", async () => {
+    expect(
+      (
+        await send(
+          request("fuel_log", {
+            ...claim(),
+            date: "2026-01-01T10:00:00Z",
+            odometer: 1000,
+            cost: "1000.00",
+            receiptReference: "PREVIOUS"
+          })
+        )
+      ).status
+    ).toBe("processed");
+    expect(
+      (
+        await send(
+          request("fuel_log", {
+            ...claim(),
+            date: "2026-01-03T10:00:00Z",
+            odometer: 1100,
+            receiptReference: "FUTURE"
+          })
+        )
+      ).status
+    ).toBe("processed");
+
+    const entry = request("fuel_log", {
+      ...claim(),
+      date: "2026-01-02T10:00:00Z",
+      odometer: 1009,
+      cost: "5000.00",
+      discrepancyAlert: false
+    });
+    expect((await Promise.all([send(entry), send(entry)])).map((row) => row.status).sort()).toEqual(
+      ["duplicate", "processed"]
+    );
+
+    const stored = await client.fuelLog.findUnique({
+      where: { id: (entry.payload as { id: string }).id }
+    });
+    expect(stored?.discrepancyAlert).toBe(true);
+    expect(await client.fuelLog.count({ where: { schoolId, id: stored?.id } })).toBe(1);
+    const change = (await pullChanges(schoolId, "0", 100)).changes.find(
+      (row) => row.record.id === stored?.id
+    );
+    expect(change?.record.discrepancyAlert).toBe(true);
   });
   it("rejects duplicate plates, references and repeated readings with different IDs", async () => {
     expect(
@@ -155,11 +219,7 @@ describe.skipIf(!url)("fleet PostgreSQL workflow", () => {
       where: { schoolId, entity: "vehicle", action: "UPDATE" }
     });
     expect(audit).toHaveLength(1);
-    expect(audit[0]?.metadata).toMatchObject({
-      benchmarkBefore: null,
-      benchmarkVersion: 1,
-      benchmarkAfter: { maximum: "10.00" }
-    });
+    expect(audit[0]?.metadata).toEqual({ changedFields: ["fuelBenchmark"] });
     const changes = await pullChanges(schoolId, "0", 100);
     expect(changes.changes.at(-1)).toMatchObject({
       entity: "vehicle",
@@ -167,6 +227,71 @@ describe.skipIf(!url)("fleet PostgreSQL workflow", () => {
       record: { benchmarkVersion: 1, fuelBenchmark: { maximum: "10.00" } }
     });
     expect((await send({ ...entry, expectedVersion: 1 })).status).toBe("conflict");
+  });
+  it("audits vehicle, mileage and fuel writes once with changed field names only", async () => {
+    const vehicleAudit = await client.auditLog.findFirstOrThrow({
+      where: { schoolId, entity: "vehicle", entityId: vehicleId, action: "CREATE" }
+    });
+    expect(vehicleAudit).toMatchObject({ schoolId, userId, entityId: vehicleId });
+    expect(vehicleAudit.metadata).toMatchObject({
+      changedFields: expect.arrayContaining(["plateNumber", "model"])
+    });
+
+    const benchmark = benchmarkRequest();
+    expect((await send(benchmark)).status).toBe("processed");
+    const updateAudit = await client.auditLog.findFirstOrThrow({
+      where: { schoolId, entity: "vehicle", entityId: vehicleId, action: "UPDATE" }
+    });
+    expect(updateAudit).toMatchObject({ schoolId, userId, entityId: vehicleId });
+    expect(updateAudit.metadata).toEqual({ changedFields: ["fuelBenchmark"] });
+
+    const mileage = reading();
+    mileage.date = "2026-01-01T10:00:00Z";
+    mileage.odometer = 900;
+    expect((await send(request("mileage_log", mileage))).status).toBe("processed");
+    const mileageAudit = await client.auditLog.findFirstOrThrow({
+      where: { schoolId, entity: "mileage_log", entityId: mileage.id }
+    });
+    expect(mileageAudit).toMatchObject({
+      schoolId,
+      userId,
+      action: "CREATE",
+      entityId: mileage.id
+    });
+    expect(mileageAudit.metadata).toMatchObject({
+      changedFields: expect.arrayContaining(["vehicleId", "date", "odometer"])
+    });
+
+    const fuel = { ...claim(), date: "2026-01-02T10:00:00Z", odometer: 1000 };
+    expect((await send(request("fuel_log", fuel))).status).toBe("processed");
+    const fuelAudit = await client.auditLog.findFirstOrThrow({
+      where: { schoolId, entity: "fuel_log", entityId: fuel.id }
+    });
+    expect(fuelAudit).toMatchObject({
+      schoolId,
+      userId,
+      action: "CREATE",
+      entityId: fuel.id
+    });
+    expect(JSON.stringify(fuelAudit.metadata)).not.toContain(fuel.receiptReference);
+    expect(JSON.stringify(fuelAudit.metadata)).not.toContain("19000");
+  });
+  it("does not leave audit rows for rejected fleet writes or allow cross-school attribution", async () => {
+    const before = await client.auditLog.count({ where: { schoolId } });
+    expect((await send(request("fuel_log", { ...claim(), cost: "0" }))).status).toBe("failed");
+    expect(await client.auditLog.count({ where: { schoolId } })).toBe(before);
+
+    const otherSchool = randomUUID();
+    await client.school.create({
+      data: { id: otherSchool, name: "Other", phone: randomUUID(), address: "Other" }
+    });
+    const result = await processMutation(otherSchool, userId, {
+      ...request("vehicle", { id: randomUUID(), plateNumber: "XYZ-987", model: "Other" }),
+      schoolId: otherSchool
+    });
+    expect(result.status).toBe("failed");
+    expect(await client.auditLog.count({ where: { schoolId: otherSchool } })).toBe(0);
+    expect(await client.auditLog.count({ where: { schoolId } })).toBe(before);
   });
   it("rejects concurrent stale benchmark edits and accepts the latest version", async () => {
     expect(

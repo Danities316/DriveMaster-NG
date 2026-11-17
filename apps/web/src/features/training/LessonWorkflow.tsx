@@ -193,7 +193,7 @@ export function StartOutingForm({ outing, name, disabled, onSave }: Props) {
 }
 
 export function FinishOutingForm({ outing, name, disabled, onSave }: Props) {
-  const [fuelBought, setFuelBought] = useState(true);
+  const [fuelBought, setFuelBought] = useState(false);
   const [endMileage, setEndMileage] = useState("");
   const [spent, setSpent] = useState(outing.fuelIssued ?? "0");
   const [fieldError, setFieldError] = useState<{ name: string; message: string }>();
@@ -205,29 +205,17 @@ export function FinishOutingForm({ outing, name, disabled, onSave }: Props) {
     Number(endMileage) <= 2147483647
       ? Number(endMileage) - (outing.startOdometer ?? 0)
       : undefined;
-  const [step, setStep] = useState(0),
-    [busy, setBusy] = useState(false),
+  const [busy, setBusy] = useState(false),
     [error, setError] = useState("");
-  const [review, setReview] = useState<FormData>();
   const [lessonTopic, setLessonTopic] = useState("");
   const [otherTopic, setOtherTopic] = useState("");
   const formRef = useRef<HTMLFormElement>(null);
-  const heading = useRef<HTMLHeadingElement>(null);
   const members = outing.members.filter((m) => m.status === "DRIVING");
-  const titles = ["Lesson and mileage", "Fuel bought", "Check and save"];
   const read = (f: FormData, key: string) => String(f.get(key) ?? "");
   const sharedTopic = () => (lessonTopic === OTHER_TOPIC ? otherTopic : lessonTopic).trim();
-  function go(next: number) {
-    setStep(next);
-    setError("");
-    setFieldError(undefined);
-    requestAnimationFrame(() => heading.current?.focus());
-  }
-  function validate(section: number) {
+  function validate() {
     const form = formRef.current!;
-    const fields = form.querySelectorAll<HTMLInputElement | HTMLSelectElement>(
-      `[data-step="${section}"] input, [data-step="${section}"] select`
-    );
+    const fields = form.querySelectorAll<HTMLInputElement | HTMLSelectElement>("input, select");
     const fail = (fieldName: string, message: string) => {
       const field = form.elements.namedItem(fieldName) as HTMLInputElement;
       field.setCustomValidity(message);
@@ -254,28 +242,26 @@ export function FinishOutingForm({ outing, name, disabled, onSave }: Props) {
     const f = new FormData(form);
     const end = Date.parse(read(f, "endedAt")),
       start = Date.parse(outing.startedAt!);
-    if (section === 0) {
-      if (!sharedTopic()) {
-        const missing = members.find((member) => !read(f, `topics-${member.studentId}`).trim());
-        if (missing)
-          return fail(
-            "lessonTopic",
-            "Choose what was taught. Open individual changes only when students did different topics."
-          );
-      }
-      if (end <= start || end > Date.now() + 300000 || end - start > 43200000)
+    if (!sharedTopic()) {
+      const missing = members.find((member) => !read(f, `topics-${member.studentId}`).trim());
+      if (missing)
         return fail(
-          "endedAt",
-          "Choose a finish time after the start, no later than now, and within 12 hours of starting."
-        );
-      const minutes = members.reduce((sum, m) => sum + Number(f.get(`minutes-${m.studentId}`)), 0);
-      if (minutes > (end - start) / 60000)
-        return fail(
-          "endedAt",
-          `You entered ${minutes} driving minutes. The training trip must last at least that long. Check the finish time or driving minutes.`
+          "lessonTopic",
+          "Choose what was taught. Open individual changes only when students did different topics."
         );
     }
-    if (section === 1 && fuelBought) {
+    if (end <= start || end > Date.now() + 300000 || end - start > 43200000)
+      return fail(
+        "endedAt",
+        "Choose a finish time after the start, no later than now, and within 12 hours of starting."
+      );
+    const minutes = members.reduce((sum, m) => sum + Number(f.get(`minutes-${m.studentId}`)), 0);
+    if (minutes > (end - start) / 60000)
+      return fail(
+        "endedAt",
+        `You entered ${minutes} driving minutes. The training trip must last at least that long. Check the finish time or driving minutes.`
+      );
+    if (fuelBought) {
       const fuelTime = Date.parse(read(f, "fuelDate"));
       if (fuelTime < start || fuelTime > end)
         return fail(
@@ -293,12 +279,7 @@ export function FinishOutingForm({ outing, name, disabled, onSave }: Props) {
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (busy || disabled) return;
-    if (step < 2) {
-      if (!validate(step)) return;
-      setReview(new FormData(formRef.current!));
-      go(step + 1);
-      return;
-    }
+    if (!validate()) return;
     const f = new FormData(formRef.current!);
     setBusy(true);
     setError("");
@@ -348,15 +329,12 @@ export function FinishOutingForm({ outing, name, disabled, onSave }: Props) {
         }}
       >
         <h3>Finish training</h3>
-        <h4 ref={heading} tabIndex={-1}>
-          Step {step + 1} of 3: {titles[step]}
-        </h4>
-        <fieldset data-step="0" hidden={step !== 0}>
-          <legend>1. How far did you drive?</legend>
-          <p>
-            Started {new Date(outing.startedAt!).toLocaleString("en-NG")}. Starting mileage:{" "}
-            {outing.startOdometer?.toLocaleString()} km.
-          </p>
+        <p>
+          Started {new Date(outing.startedAt!).toLocaleString("en-NG")}. Starting mileage:{" "}
+          {outing.startOdometer?.toLocaleString()} km.
+        </p>
+
+        <div className="lesson-topic-card">
           <Input
             label="Actual finish time"
             name="endedAt"
@@ -377,208 +355,152 @@ export function FinishOutingForm({ outing, name, disabled, onSave }: Props) {
               Distance driven: {distance.toLocaleString("en-NG")} km
             </p>
           )}
-          <div className="lesson-topic-card">
-            <label>
-              What did you teach today?
-              <select
-                name="lessonTopic"
-                value={lessonTopic}
-                aria-invalid={fieldError?.name === "lessonTopic" ? true : undefined}
-                onChange={(event) => {
-                  setLessonTopic(event.target.value);
-                  setFieldError(undefined);
-                }}
-              >
-                <option value="">Choose the main lesson</option>
-                {COMMON_LESSON_TOPICS.map((topic) => (
-                  <option key={topic} value={topic}>
-                    {topic}
-                  </option>
-                ))}
-                <option value={OTHER_TOPIC}>Something else</option>
-              </select>
-            </label>
-            {lessonTopic === OTHER_TOPIC && (
-              <Input
-                label="Describe what was taught"
-                name="otherTopic"
-                initial={otherTopic}
-                onChange={setOtherTopic}
-              />
-            )}
-            {fieldError?.name === "lessonTopic" && (
-              <span className="fleet-error" role="alert">
-                {fieldError.message}
-              </span>
-            )}
-            <p>
-              This lesson will be used for everyone in the car. Each student is already set to 30
-              driving minutes.
-            </p>
-          </div>
-          <details className="lesson-student-changes">
-            <summary>Change time, topic or notes for one student</summary>
-            <p>Open this only when a student did something different.</p>
-            {members.map((m) => (
-              <fieldset className="workflow-student" key={m.studentId}>
-                <legend>{name(m.studentId)}</legend>
-                <Input
-                  label={`Driving minutes — ${name(m.studentId)}`}
-                  name={`minutes-${m.studentId}`}
-                  type="number"
-                  min={0}
-                  max={180}
-                  step="1"
-                  initial={30}
-                />
-                <Input
-                  label={`Different topic (optional) — ${name(m.studentId)}`}
-                  name={`topics-${m.studentId}`}
-                  required={false}
-                />
-                <Input
-                  label={`Notes (optional) — ${name(m.studentId)}`}
-                  name={`note-${m.studentId}`}
-                  required={false}
-                />
-              </fieldset>
-            ))}
-            <p>
-              Less than 30 minutes will be recorded as a short lesson for the owner to review. Fuel
-              and other costs are still recorded.
-            </p>
-          </details>
-        </fieldset>
-        <fieldset data-step="1" hidden={step !== 1}>
-          <legend>3. What happened to the fuel money?</legend>
-          <div className="workflow-total">
-            <span>Fuel money given</span>
-            <strong>{naira(outing.fuelIssued ?? "0")}</strong>
-          </div>
+
           <label>
-            Was fuel bought during this trip?
+            What did you teach today?
             <select
-              value={fuelBought ? "yes" : "no"}
-              onChange={(e) => setFuelBought(e.target.value === "yes")}
+              name="lessonTopic"
+              value={lessonTopic}
+              aria-invalid={fieldError?.name === "lessonTopic" ? true : undefined}
+              onChange={(event) => {
+                setLessonTopic(event.target.value);
+                setFieldError(undefined);
+              }}
             >
-              <option value="yes">Bought fuel</option>
-              <option value="no">No fuel bought</option>
+              <option value="">Choose the main lesson</option>
+              {COMMON_LESSON_TOPICS.map((topic) => (
+                <option key={topic} value={topic}>
+                  {topic}
+                </option>
+              ))}
+              <option value={OTHER_TOPIC}>Something else</option>
             </select>
           </label>
-          <fieldset disabled={!fuelBought} hidden={!fuelBought}>
+          {lessonTopic === OTHER_TOPIC && (
             <Input
-              label="Amount spent (₦)"
-              name="fuelSpent"
-              onChange={setSpent}
-              type="number"
-              min="0.01"
-              max="9999999999.99"
-              step="0.01"
-              initial={outing.fuelIssued ?? "0"}
+              label="Describe what was taught"
+              name="otherTopic"
+              initial={otherTopic}
+              onChange={setOtherTopic}
             />
-            <FuelBalance given={outing.fuelIssued ?? "0"} spent={spent} />
-            <h4>Purchase details (required)</h4>
-            <p>Copy these details from the fuel purchase. They help check fuel use and mileage.</p>
-            <Input
-              label="Fuel bought (litres)"
-              name="litres"
-              type="number"
-              min="0.01"
-              max="999999.99"
-              step="0.01"
-            />
-            <Input label="Fuel receipt reference" name="receiptReference" />
-            <Input label="Fuel purchase time" name="fuelDate" type="datetime-local" />
-            <Input
-              label="Mileage when fuel was bought (km)"
-              name="fuelOdometer"
-              type="number"
-              min={outing.startOdometer ?? 0}
-              max={2147483647}
-              step="1"
-            />
-            <label>
-              Did this purchase fill the tank completely?
-              <select
-                name="fullTank"
-                defaultValue=""
-                required
-                aria-invalid={fieldError?.name === "fullTank" ? true : undefined}
-                aria-describedby={fieldError?.name === "fullTank" ? fuelErrorId : undefined}
-                onChange={() => setFieldError(undefined)}
-              >
-                <option value="">Choose</option>
-                <option value="yes">Yes, full tank</option>
-                <option value="no">No, partial fill</option>
-              </select>
-              {fieldError?.name === "fullTank" && (
-                <span id={fuelErrorId} className="fleet-error" role="alert">
-                  Choose whether this purchase filled the tank completely.
-                </span>
-              )}
-            </label>
-            <p>
-              Use the actual purchase time and mileage. Do not record this receipt again on the
-              vehicle page.
-            </p>
-          </fieldset>
-          {!fuelBought && <FuelBalance given={outing.fuelIssued ?? "0"} spent="0" />}
-          {!fuelBought && (
-            <p>
-              No purchase will be added. The full issued amount remains to be accounted for by the
-              owner.
-            </p>
           )}
-        </fieldset>
-        {step === 2 && review && (
-          <section className="workflow-review" aria-label="Lesson summary">
-            <h4>Training summary</h4>
-            <p>
-              <strong>Distance driven: {distance?.toLocaleString("en-NG")} km</strong>
-            </p>
-            <ul>
-              {members.map((m) => (
-                <li key={m.studentId}>
-                  <strong>{name(m.studentId)}</strong>: {read(review, `minutes-${m.studentId}`)}{" "}
-                  minutes · {read(review, `topics-${m.studentId}`).trim() || sharedTopic()}
-                  {read(review, `note-${m.studentId}`) &&
-                    ` · ${read(review, `note-${m.studentId}`)}`}
-                </li>
-              ))}
-            </ul>
-            <p>
-              Finished: {new Date(read(review, "endedAt")).toLocaleString("en-NG")} · Mileage:{" "}
-              {outing.startOdometer} → {read(review, "odometer")} km
-            </p>
-            <p>
-              Fuel: {fuelBought ? read(review, "litres") : "0"} litres for{" "}
-              {naira(fuelBought ? read(review, "fuelSpent") : "0")} · Receipt:{" "}
-              {fuelBought ? read(review, "receiptReference") : "Not applicable"} ·{" "}
-              {fuelBought
-                ? read(review, "fullTank") === "yes"
-                  ? "Full tank"
-                  : "Partial fill"
-                : "No purchase"}
-            </p>
-            {fuelBought && (
-              <p>
-                Bought: {new Date(read(review, "fuelDate")).toLocaleString("en-NG")} at{" "}
-                {read(review, "fuelOdometer")} km.
-              </p>
+          {fieldError?.name === "lessonTopic" && (
+            <span className="fleet-error" role="alert">
+              {fieldError.message}
+            </span>
+          )}
+          <p>
+            This lesson will be used for everyone in the car. Keep the default 30 minutes unless a
+            student did something different.
+          </p>
+        </div>
+
+        <details className="lesson-student-changes">
+          <summary>Change time, topic or notes for one student</summary>
+          <p>Open this only when a student did something different.</p>
+          {members.map((m) => (
+            <fieldset className="workflow-student" key={m.studentId}>
+              <legend>{name(m.studentId)}</legend>
+              <Input
+                label={`Driving minutes — ${name(m.studentId)}`}
+                name={`minutes-${m.studentId}`}
+                type="number"
+                min={0}
+                max={180}
+                step="1"
+                initial={30}
+              />
+              <Input
+                label={`Different topic (optional) — ${name(m.studentId)}`}
+                name={`topics-${m.studentId}`}
+                required={false}
+              />
+              <Input
+                label={`Notes (optional) — ${name(m.studentId)}`}
+                name={`note-${m.studentId}`}
+                required={false}
+              />
+            </fieldset>
+          ))}
+          <p>
+            Short lessons are allowed, but the owner can review them later. Fuel and other costs are
+            still recorded.
+          </p>
+        </details>
+
+        <div className="workflow-total">
+          <span>Fuel money given</span>
+          <strong>{naira(outing.fuelIssued ?? "0")}</strong>
+        </div>
+        <label>
+          Was fuel bought during this trip?
+          <select
+            value={fuelBought ? "yes" : "no"}
+            onChange={(e) => setFuelBought(e.target.value === "yes")}
+          >
+            <option value="yes">Bought fuel</option>
+            <option value="no">No fuel bought</option>
+          </select>
+        </label>
+        <fieldset disabled={!fuelBought} hidden={!fuelBought}>
+          <Input
+            label="Amount spent (₦)"
+            name="fuelSpent"
+            onChange={setSpent}
+            type="number"
+            min="0.01"
+            max="9999999999.99"
+            step="0.01"
+            initial={outing.fuelIssued ?? "0"}
+          />
+          <FuelBalance given={outing.fuelIssued ?? "0"} spent={spent} />
+          <h4>Purchase details</h4>
+          <p>Use the actual fuel purchase details so the trip is easy to check later.</p>
+          <Input
+            label="Fuel bought (litres)"
+            name="litres"
+            type="number"
+            min="0.01"
+            max="999999.99"
+            step="0.01"
+          />
+          <Input label="Fuel receipt reference" name="receiptReference" />
+          <Input label="Fuel purchase time" name="fuelDate" type="datetime-local" />
+          <Input
+            label="Mileage when fuel was bought (km)"
+            name="fuelOdometer"
+            type="number"
+            min={outing.startOdometer ?? 0}
+            max={2147483647}
+            step="1"
+          />
+          <label>
+            Did this purchase fill the tank completely?
+            <select
+              name="fullTank"
+              defaultValue=""
+              required
+              aria-invalid={fieldError?.name === "fullTank" ? true : undefined}
+              aria-describedby={fieldError?.name === "fullTank" ? fuelErrorId : undefined}
+              onChange={() => setFieldError(undefined)}
+            >
+              <option value="">Choose</option>
+              <option value="yes">Yes, full tank</option>
+              <option value="no">No, partial fill</option>
+            </select>
+            {fieldError?.name === "fullTank" && (
+              <span id={fuelErrorId} className="fleet-error" role="alert">
+                Choose whether this purchase filled the tank completely.
+              </span>
             )}
-            <p>
-              Fuel money given: {naira(outing.fuelIssued ?? "0")} / Spent:{" "}
-              {naira(fuelBought ? read(review, "fuelSpent") : "0")}
-            </p>
-            <FuelBalance
-              given={outing.fuelIssued ?? "0"}
-              spent={fuelBought ? read(review, "fuelSpent") : "0"}
-            />
-            <p>
-              Students will see these lessons when the records are sent. Each student must sign in
-              to confirm or report a problem.
-            </p>
-          </section>
+          </label>
+        </fieldset>
+        {!fuelBought && <FuelBalance given={outing.fuelIssued ?? "0"} spent="0" />}
+        {!fuelBought && (
+          <p>
+            No purchase will be added. The full issued amount remains to be accounted for by the
+            owner.
+          </p>
         )}
         {error && (
           <p className="fleet-error" role="alert">
@@ -586,18 +508,8 @@ export function FinishOutingForm({ outing, name, disabled, onSave }: Props) {
           </p>
         )}
         <div className="workflow-actions">
-          {step > 0 && (
-            <button
-              type="button"
-              className="dm-secondary"
-              disabled={busy}
-              onClick={() => go(step - 1)}
-            >
-              Back
-            </button>
-          )}
           <button type="submit" className="dm-primary" disabled={disabled || busy}>
-            {busy ? "Saving…" : step === 2 ? "Finish training" : "Continue"}
+            {busy ? "Saving…" : "Finish training"}
           </button>
         </div>
       </form>

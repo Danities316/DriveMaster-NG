@@ -11,6 +11,7 @@ import type {
 } from "@drivemaster/shared";
 import { normalizeMoney } from "@drivemaster/shared";
 import { getPrismaClient } from "../prisma.js";
+import { writeAuditLog } from "../audit.js";
 import {
   createStudentSchema,
   updateStudentSchema,
@@ -198,14 +199,15 @@ export async function processMutation(
           result.payment = toPayment(row);
         }
         if (changed)
-          await tx.auditLog.create({
-            data: {
-              schoolId,
-              userId,
-              action: mutation.action,
-              entity: mutation.entity,
-              entityId: result.student?.id ?? result.payment!.id,
-              metadata: { mutationId: mutation.mutationId, deviceId: mutation.deviceId }
+          await writeAuditLog(tx, {
+            schoolId,
+            userId,
+            action: mutation.action,
+            entity: mutation.entity,
+            entityId: result.student?.id ?? result.payment!.id,
+            metadata: {
+              ...(payment?.success ? { entityIds: [payload.studentId as string] } : {}),
+              changedFields: Object.keys(parsed.data).filter((field) => field !== "id")
             }
           });
         await tx.syncReceipt.create({

@@ -45,12 +45,13 @@ describe("dashboard navigation", () => {
     };
     await db.trainingQueue.bulkPut([
       command,
+      { ...command, id: "conflicted-training", status: "CONFLICT" },
       { ...command, id: "other-account", userId: "other", status: "FAILED" }
     ]);
     render(<Dashboard {...props()} />);
     const waiting = (await screen.findByText("Records waiting to be sent")).closest("article")!;
     expect(waiting).toHaveTextContent("1 record");
-    expect(screen.queryByText(/record needs attention/)).not.toBeInTheDocument();
+    expect(waiting).toHaveTextContent("1 need attention");
   });
   it("shows accepted money received today and the total students still owe", async () => {
     const timestamp = new Date().toISOString();
@@ -84,7 +85,7 @@ describe("dashboard navigation", () => {
     expect(received).toHaveTextContent("Accepted school records");
     const owing = screen.getByText("Students still owe").closest("article")!;
     expect(owing).toHaveTextContent("₦30,000.00");
-    expect(screen.queryByText("Get DriveMaster ready")).toBeNull();
+    expect(screen.queryByText("Launch your school")).toBeNull();
   });
   it("does not expose owner-only cost or margin information to receptionists", async () => {
     render(<Dashboard {...props()} user={{ ...user, role: "RECEPTIONIST" }} />);
@@ -106,9 +107,10 @@ describe("dashboard navigation", () => {
   it("shows an honest empty state and connects quick actions", async () => {
     const callbacks = props();
     render(<Dashboard {...callbacks} />);
-    expect(await screen.findByText("Get DriveMaster ready")).toBeVisible();
+    expect(await screen.findByText("Launch your school")).toBeVisible();
     expect(await screen.findByText("Your payment history starts here")).toBeInTheDocument();
     expect(screen.getByText(/Totals may be incomplete/)).toBeInTheDocument();
+    fireEvent.click(screen.getByText("Quick actions"));
     fireEvent.click(screen.getByRole("button", { name: "Add student" }));
     expect(callbacks.onAdd).toHaveBeenCalledOnce();
     fireEvent.click(screen.getByRole("button", { name: "Record payment" }));

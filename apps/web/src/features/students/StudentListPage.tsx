@@ -19,7 +19,6 @@ interface StudentListPageProps {
  */
 export function StudentListPage({ schoolId, onSelectStudent, onAddStudent }: StudentListPageProps) {
   const [search, setSearch] = useState("");
-  const [showImport, setShowImport] = useState(false);
 
   useEffect(() => {
     void refreshStudentsFromServer();
@@ -47,15 +46,11 @@ export function StudentListPage({ schoolId, onSelectStudent, onAddStudent }: Stu
           <Plus size={20} aria-hidden="true" />
           Add student
         </button>
-        <button
-          type="button"
-          className="dm-secondary"
-          onClick={() => setShowImport((value) => !value)}
-        >
-          {showImport ? "Close import" : "Import CSV"}
-        </button>
       </div>
-      {showImport ? <StudentCsvImport schoolId={schoolId} /> : null}
+      <details className="student-import-more">
+        <summary>Import students from a CSV file</summary>
+        <StudentCsvImport schoolId={schoolId} />
+      </details>
 
       <div className="student-search">
         <Search

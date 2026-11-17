@@ -61,8 +61,10 @@ export function Dashboard({
       return {
         data: {
           ...data,
-          pending: data.pending + ownTraining.filter((row) => row.status !== "FAILED").length,
-          review: data.review + ownTraining.filter((row) => row.status === "FAILED").length
+          pending: data.pending + ownTraining.filter((row) => row.status === "PENDING").length,
+          review:
+            data.review +
+            ownTraining.filter((row) => row.status === "FAILED" || row.status === "CONFLICT").length
         },
         trainingSnapshot: trainingCache?.schoolId === user.schoolId ? trainingCache.snapshot : null,
         error: false
@@ -154,25 +156,37 @@ export function Dashboard({
               : greeting}
           </p>
         </div>
-        <div className="dashboard-actions">
-          {!paymentsOnly && onTraining && (
-            <button
-              className="dm-secondary"
-              onClick={() => onTraining({ tab: "outings", filter: "today", book: true })}
-            >
-              <CalendarPlus size={17} />
-              Book a Training
+        {paymentsOnly ? (
+          <div className="dashboard-actions">
+            <button className="dm-primary" onClick={onStudents}>
+              <Wallet size={17} />
+              Record payment
             </button>
-          )}
-          <button className="dm-secondary" onClick={onStudents}>
-            <Wallet size={17} />
-            Record payment
-          </button>
-          <button className="dm-primary" onClick={onAdd}>
-            <Plus size={18} />
-            Add student
-          </button>
-        </div>
+          </div>
+        ) : (
+          <details className="dashboard-quick-actions">
+            <summary>Quick actions</summary>
+            <div className="dashboard-actions">
+              {onTraining && (
+                <button
+                  className="dm-secondary"
+                  onClick={() => onTraining({ tab: "outings", filter: "today", book: true })}
+                >
+                  <CalendarPlus size={17} />
+                  Book training
+                </button>
+              )}
+              <button className="dm-secondary" onClick={onStudents}>
+                <Wallet size={17} />
+                Record payment
+              </button>
+              <button className="dm-primary" onClick={onAdd}>
+                <Plus size={18} />
+                Add student
+              </button>
+            </div>
+          </details>
+        )}
       </div>
       {!paymentsOnly && onTraining && (
         <FirstDayOnboarding

@@ -1,6 +1,11 @@
 import { FuelUsageCards } from "./FuelUsageCards";
 import { FuelBenchmarkPanel } from "./FuelBenchmarkPanel";
-import { assessFuelConsumption, calculateFuelConsumption } from "@drivemaster/shared";
+import {
+  assessFuelConsumption,
+  calculateFuelConsumption,
+  FUEL_DISCREPANCY_COST_NGN,
+  FUEL_DISCREPANCY_DISTANCE_KM
+} from "@drivemaster/shared";
 import { useRef, useState, type FormEvent } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
 import { Car, Fuel, Gauge, Plus } from "lucide-react";
@@ -22,6 +27,7 @@ const savedRecordError = (message: string) => {
   return "This saved record needs attention before it can be sent.";
 };
 export function FleetPage({ user }: { user: AuthenticatedUser }) {
+  const fuelBenchmarksEnabled = import.meta.env.VITE_FUEL_BENCHMARKS_ENABLED === "true";
   const [flaggedOnly, setFlaggedOnly] = useState(false);
   const [vehicleId, setVehicleId] = useState("");
   const [form, setForm] = useState<FleetEntity | null>(null);
@@ -77,7 +83,14 @@ export function FleetPage({ user }: { user: AuthenticatedUser }) {
         throw new Error("Choose whether the tank was filled completely.");
       const payload =
         form === "vehicle"
-          ? { id: recordId, plateNumber: value("plateNumber"), model: value("model") }
+          ? {
+              id: recordId,
+              plateNumber: value("plateNumber"),
+              model: value("model"),
+              insuranceExpiryDate: value("insuranceExpiryDate"),
+              vehicleLicenceExpiryDate: value("vehicleLicenceExpiryDate"),
+              roadworthinessExpiryDate: value("roadworthinessExpiryDate")
+            }
           : {
               id: recordId,
               vehicleId,
@@ -117,18 +130,20 @@ export function FleetPage({ user }: { user: AuthenticatedUser }) {
       </p>
     );
   const queue = new Map(data.queue.map((row) => [row.mutationId, row]));
-  const intervals = calculateFuelConsumption(
-    data.fuel,
-    user.schoolId,
-    new Set(queue.keys())
-  ).filter((row) => !vehicleId || row.vehicleId === vehicleId);
-  const assessed = intervals.map((cycle) => ({
-    ...cycle,
-    assessment: assessFuelConsumption(
-      cycle,
-      data.vehicles.find((vehicle) => vehicle.id === cycle.vehicleId)?.fuelBenchmark
-    )
-  }));
+  const intervals = fuelBenchmarksEnabled
+    ? calculateFuelConsumption(data.fuel, user.schoolId, new Set(queue.keys())).filter(
+        (row) => !vehicleId || row.vehicleId === vehicleId
+      )
+    : [];
+  const assessed = fuelBenchmarksEnabled
+    ? intervals.map((cycle) => ({
+        ...cycle,
+        assessment: assessFuelConsumption(
+          cycle,
+          data.vehicles.find((vehicle) => vehicle.id === cycle.vehicleId)?.fuelBenchmark
+        )
+      }))
+    : [];
   const flagged = assessed.filter((cycle) => cycle.assessment.status === "above_limit");
   const selected = data.vehicles.find((row) => row.id === vehicleId);
   const history = [
@@ -138,6 +153,7 @@ export function FleetPage({ user }: { user: AuthenticatedUser }) {
     .filter((row) => !vehicleId || row.vehicleId === vehicleId)
     .sort((a, b) => Date.parse(b.date) - Date.parse(a.date));
   const latestReading = history[0];
+  const hasFleetData = data.vehicles.length > 0 || data.fuel.length > 0 || data.mileage.length > 0;
   const status = (id: string) => {
     const pending = queue.get(id);
     return pending
@@ -159,105 +175,124 @@ export function FleetPage({ user }: { user: AuthenticatedUser }) {
           Register vehicle
         </button>
       </div>
-      <div className="dm-notice">
-        Fuel purchases saved through Finish training already appear here. Do not record them again.
-        Saved mileage and fuel records cannot be edited or deleted. Recording a fuel purchase does
-        not approve payment. After your records are sent, the app checks fuel use against the limit
-        set for each vehicle.
-      </div>
-      <section className="dm-panel fleet-controls">
-        <label htmlFor="fleet-vehicle">Vehicle</label>
-        <select
-          id="fleet-vehicle"
-          value={vehicleId}
-          onChange={(event) => {
-            setVehicleId(event.target.value);
-            setForm(null);
-            setError("");
-          }}
-        >
-          <option value="">All vehicles</option>
-          {data.vehicles.map((vehicle) => (
-            <option key={vehicle.id} value={vehicle.id}>
-              {vehicle.plateNumber} · {vehicle.model} · {status(vehicle.id)}
-            </option>
-          ))}
-        </select>
-        <div className="fleet-actions">
-          <button
-            className="dm-secondary"
-            disabled={!selected || selected.status === "INACTIVE"}
-            onClick={() => open("mileage_log")}
-          >
-            <Gauge size={17} />
-            Record mileage
-          </button>
-          <button
-            className="dm-secondary"
-            disabled={!selected || selected.status === "INACTIVE"}
-            onClick={() => open("fuel_log")}
-          >
-            <Fuel size={17} />
-            Record fuel
-          </button>
-        </div>
-        <p>
-          {selected
-            ? `${selected.model} · ${selected.plateNumber} · ${selected.status.toLowerCase()}`
-            : data.vehicles.length
-              ? "Select a vehicle to record mileage or a fuel purchase."
-              : "Register your first vehicle to start recording."}
-        </p>
-      </section>
-      <section className="dm-panel" aria-labelledby="consumption-title">
-        <div className="panel-heading">
-          <div>
-            <h2 id="consumption-title">Vehicle fuel usage</h2>
-            <p>
-              Check the latest completed periods for each vehicle. Open a calculation for the
-              supporting figures.
-            </p>
+      {!hasFleetData && (
+        <section className="dm-panel fleet-first-step">
+          <strong className="readiness-label readiness-needs-setup">Needs setup</strong>
+          <h2>Add your first training vehicle</h2>
+          <p>Register a vehicle before recording mileage, fuel purchases or usage.</p>
+        </section>
+      )}
+      {hasFleetData && (
+        <>
+          <div className="dm-notice">
+            Fuel purchases saved through Finish training already appear here. Do not record them
+            again. Saved mileage and fuel records cannot be edited or deleted. Recording a fuel
+            purchase does not approve payment. After your records are sent, the app flags fuel
+            purchases of at least {naira(FUEL_DISCREPANCY_COST_NGN)} recorded less than{" "}
+            {FUEL_DISCREPANCY_DISTANCE_KM} km after the previous fuel log for that vehicle.
           </div>
-        </div>
-        <div className="fleet-review-summary">
-          {flagged.length > 0 && (
-            <strong>{flagged.length} completed period(s) need checking for high fuel use</strong>
-          )}
-          <label>
-            <input
-              type="checkbox"
-              checked={flaggedOnly}
-              onChange={(event) => setFlaggedOnly(event.target.checked)}
-            />{" "}
-            Show only high fuel use
-          </label>
-          <p>
-            Check the mileage, fuel purchases and driving conditions. A high reading is not proof of
-            a false claim. New fuel limits are used only after they have been sent.
-          </p>
-        </div>
-        <FuelUsageCards
-          vehicles={data.vehicles.filter((v) => !vehicleId || v.id === vehicleId)}
-          cycles={intervals}
-          flaggedOnly={flaggedOnly}
-          fuel={data.fuel}
-          unconfirmedIds={new Set(queue.keys())}
-        />
-      </section>
-      {selected && (
-        <details className="fleet-benchmark-details">
-          <summary>Expected fuel use settings</summary>
+          <section className="dm-panel fleet-controls">
+            <label htmlFor="fleet-vehicle">Vehicle</label>
+            <select
+              id="fleet-vehicle"
+              value={vehicleId}
+              onChange={(event) => {
+                setVehicleId(event.target.value);
+                setForm(null);
+                setError("");
+              }}
+            >
+              <option value="">All vehicles</option>
+              {data.vehicles.map((vehicle) => (
+                <option key={vehicle.id} value={vehicle.id}>
+                  {vehicle.plateNumber} · {vehicle.model} · {status(vehicle.id)}
+                </option>
+              ))}
+            </select>
+            <div className="fleet-actions">
+              <button
+                className="dm-secondary"
+                disabled={!selected || selected.status === "INACTIVE"}
+                onClick={() => open("mileage_log")}
+              >
+                <Gauge size={17} />
+                Record mileage
+              </button>
+              <button
+                className="dm-secondary"
+                disabled={!selected || selected.status === "INACTIVE"}
+                onClick={() => open("fuel_log")}
+              >
+                <Fuel size={17} />
+                Record fuel
+              </button>
+            </div>
+            <p>
+              {selected
+                ? `${selected.model} · ${selected.plateNumber} · ${selected.status.toLowerCase()}`
+                : data.vehicles.length
+                  ? "Select a vehicle to record mileage or a fuel purchase."
+                  : "Register your first vehicle to start recording."}
+            </p>
+          </section>
+          {fuelBenchmarksEnabled && (
+            <>
+              <section className="dm-panel" aria-labelledby="consumption-title">
+                <div className="panel-heading">
+                  <div>
+                    <h2 id="consumption-title">Vehicle fuel usage</h2>
+                    <p>
+                      Check the latest completed periods for each vehicle. Open a calculation for
+                      the supporting figures.
+                    </p>
+                  </div>
+                </div>
+                <div className="fleet-review-summary">
+                  {flagged.length > 0 && (
+                    <strong>
+                      {flagged.length} completed period(s) need checking for high fuel use
+                    </strong>
+                  )}
+                  <label>
+                    <input
+                      type="checkbox"
+                      checked={flaggedOnly}
+                      onChange={(event) => setFlaggedOnly(event.target.checked)}
+                    />{" "}
+                    Show only high fuel use
+                  </label>
+                  <p>
+                    Check the mileage, fuel purchases and driving conditions. A high reading is not
+                    proof of a false claim. New fuel limits are used only after they have been sent.
+                  </p>
+                </div>
+                <FuelUsageCards
+                  vehicles={data.vehicles.filter((v) => !vehicleId || v.id === vehicleId)}
+                  cycles={intervals}
+                  flaggedOnly={flaggedOnly}
+                  fuel={data.fuel}
+                  unconfirmedIds={new Set(queue.keys())}
+                />
+              </section>
+              {selected && (
+                <details className="fleet-benchmark-details">
+                  <summary>Expected fuel use settings</summary>
 
-          <FuelBenchmarkPanel
-            key={selected.id}
-            user={user}
-            vehicle={selected}
-            pending={data.queue.find(
-              (entry) =>
-                entry.entity === "vehicle" && (entry.payload as { id?: string }).id === selected.id
-            )}
-          />
-        </details>
+                  <FuelBenchmarkPanel
+                    key={selected.id}
+                    user={user}
+                    vehicle={selected}
+                    pending={data.queue.find(
+                      (entry) =>
+                        entry.entity === "vehicle" &&
+                        (entry.payload as { id?: string }).id === selected.id
+                    )}
+                  />
+                </details>
+              )}
+            </>
+          )}
+        </>
       )}
       {message && (
         <p className="fleet-success" role="status">
@@ -301,6 +336,21 @@ export function FleetPage({ user }: { user: AuthenticatedUser }) {
                 <label>
                   Vehicle model
                   <input name="model" required maxLength={100} placeholder="e.g. Toyota Corolla" />
+                </label>
+                <p className="fleet-wide">
+                  Add expiry dates now if available. They can be updated later in training settings.
+                </p>
+                <label>
+                  Insurance expiry date (optional)
+                  <input name="insuranceExpiryDate" type="date" />
+                </label>
+                <label>
+                  Vehicle licence expiry date (optional)
+                  <input name="vehicleLicenceExpiryDate" type="date" />
+                </label>
+                <label>
+                  Roadworthiness expiry date (optional)
+                  <input name="roadworthinessExpiryDate" type="date" />
                 </label>
               </>
             ) : (
@@ -371,7 +421,7 @@ export function FleetPage({ user }: { user: AuthenticatedUser }) {
                         <option value="yes">Yes — full tank</option>
                         <option value="no">No — partial fill</option>
                       </select>
-                      <small>This helps DriveMaster calculate fuel usage between fill-ups.</small>
+                      <small>This records whether the tank was fully refilled.</small>
                     </label>
                   </>
                 )}
@@ -431,93 +481,100 @@ export function FleetPage({ user }: { user: AuthenticatedUser }) {
           vehicle.
         </div>
       )}
-      <section className="dm-panel">
-        <div className="panel-heading">
-          <div>
-            <h2>Recording history</h2>
-            <p>
-              {vehicleId
-                ? "Mileage readings and fuel purchases for the selected vehicle"
-                : "Mileage readings and fuel purchases across your school"}
-            </p>
+      {hasFleetData && (
+        <section className="dm-panel">
+          <div className="panel-heading">
+            <div>
+              <h2>Recording history</h2>
+              <p>
+                {vehicleId
+                  ? "Mileage readings and fuel purchases for the selected vehicle"
+                  : "Mileage readings and fuel purchases across your school"}
+              </p>
+            </div>
+            <Car size={20} />
           </div>
-          <Car size={20} />
-        </div>
-        {history.length ? (
-          <div className="fleet-history-cards">
-            {history.map((row) => (
-              <article key={`${row.kind}-${row.id}`} className="fleet-history-card">
-                <h3>
-                  {data.vehicles.find((v) => v.id === row.vehicleId)?.plateNumber ??
-                    "Unknown vehicle"}{" "}
-                  / {row.kind}
-                </h3>
-                <p>
-                  {new Date(row.date).toLocaleString("en-NG", {
-                    dateStyle: "medium",
-                    timeStyle: "short",
-                    timeZone: "Africa/Lagos"
-                  })}
-                </p>
-                <p>
-                  {row.kind === "Fuel claim" ? (
-                    <>
-                      {naira(row.cost)} / {row.litres} L
-                    </>
-                  ) : (
-                    <>{row.odometer.toLocaleString()} km</>
-                  )}
-                </p>
-                <span
-                  className={`payment-badge ${status(row.id) === "Confirmed" ? "confirmed" : "pending"}`}
-                >
-                  {status(row.id)}
-                </span>
-                {queue.get(row.id)?.lastError && (
-                  <div className="fleet-error">
-                    <p>{savedRecordError(queue.get(row.id)!.lastError!)}</p>
-                    <details>
-                      <summary>Technical details</summary>
-                      <p>{queue.get(row.id)!.lastError}</p>
-                    </details>
-                  </div>
-                )}
-                <details>
-                  <summary>View record details</summary>
+          {history.length ? (
+            <div className="fleet-history-cards">
+              {history.map((row) => (
+                <article key={`${row.kind}-${row.id}`} className="fleet-history-card">
+                  <h3>
+                    {data.vehicles.find((v) => v.id === row.vehicleId)?.plateNumber ??
+                      "Unknown vehicle"}{" "}
+                    / {row.kind}
+                  </h3>
                   <p>
-                    Mileage: {row.odometer.toLocaleString()} km /{" "}
-                    {row.driverName || "Driver not recorded (legacy)"}
+                    {new Date(row.date).toLocaleString("en-NG", {
+                      dateStyle: "medium",
+                      timeStyle: "short",
+                      timeZone: "Africa/Lagos"
+                    })}
                   </p>
-                  {row.kind === "Fuel claim" && (
-                    <p>
-                      {row.fullTank == null
-                        ? "Tank level unknown"
-                        : row.fullTank
-                          ? "Full tank"
-                          : "Partial fill"}{" "}
-                      / {row.receiptReference || "No reference (legacy)"}
-                    </p>
+                  <p>
+                    {row.kind === "Fuel claim" ? (
+                      <>
+                        {naira(row.cost)} / {row.litres} L
+                        {row.discrepancyAlert && (
+                          <span className="ml-2 font-semibold text-rose-600">
+                            Fuel discrepancy alert
+                          </span>
+                        )}
+                      </>
+                    ) : (
+                      <>{row.odometer.toLocaleString()} km</>
+                    )}
+                  </p>
+                  <span
+                    className={`payment-badge ${status(row.id) === "Confirmed" ? "confirmed" : "pending"}`}
+                  >
+                    {status(row.id)}
+                  </span>
+                  {queue.get(row.id)?.lastError && (
+                    <div className="fleet-error">
+                      <p>{savedRecordError(queue.get(row.id)!.lastError!)}</p>
+                      <details>
+                        <summary>Technical details</summary>
+                        <p>{queue.get(row.id)!.lastError}</p>
+                      </details>
+                    </div>
                   )}
-                  {row.kind === "Fuel claim" && (
+                  <details>
+                    <summary>View record details</summary>
                     <p>
-                      {data.tripFuelIds.has(row.id)
-                        ? "Recorded from training. Do not enter this purchase again."
-                        : "No training link in the loaded records."}
+                      Mileage: {row.odometer.toLocaleString()} km /{" "}
+                      {row.driverName || "Driver not recorded (legacy)"}
                     </p>
-                  )}
-                  {row.notes && <p className="fleet-notes">{row.notes}</p>}
-                </details>
-              </article>
-            ))}
-          </div>
-        ) : (
-          <div className="dashboard-empty">
-            <Gauge size={30} />
-            <h3>No mileage or fuel records yet</h3>
-            <p>Select a vehicle to save its first mileage reading or fuel purchase.</p>
-          </div>
-        )}
-      </section>
+                    {row.kind === "Fuel claim" && (
+                      <p>
+                        {row.fullTank == null
+                          ? "Tank level unknown"
+                          : row.fullTank
+                            ? "Full tank"
+                            : "Partial fill"}{" "}
+                        / {row.receiptReference || "No reference (legacy)"}
+                      </p>
+                    )}
+                    {row.kind === "Fuel claim" && (
+                      <p>
+                        {data.tripFuelIds.has(row.id)
+                          ? "Recorded from training. Do not enter this purchase again."
+                          : "No training link in the loaded records."}
+                      </p>
+                    )}
+                    {row.notes && <p className="fleet-notes">{row.notes}</p>}
+                  </details>
+                </article>
+              ))}
+            </div>
+          ) : (
+            <div className="dashboard-empty">
+              <Gauge size={30} />
+              <h3>No mileage or fuel records yet</h3>
+              <p>Select a vehicle to save its first mileage reading or fuel purchase.</p>
+            </div>
+          )}
+        </section>
+      )}
     </div>
   );
 }

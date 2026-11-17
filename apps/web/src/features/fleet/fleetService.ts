@@ -1,4 +1,9 @@
-import { FleetValidationError, parseFleetInput, validateOdometer } from "@drivemaster/shared";
+import {
+  calculateFuelDiscrepancyAlert,
+  FleetValidationError,
+  parseFleetInput,
+  validateOdometer
+} from "@drivemaster/shared";
 import type { AuthenticatedUser, FleetEntity } from "@drivemaster/shared";
 import { db } from "../../db/db";
 import { enqueue, requestSync } from "../../sync/queue";
@@ -64,7 +69,10 @@ export async function recordFleet(
           ...input,
           schoolId: user.schoolId,
           recordedById: user.id,
-          discrepancyAlert: false,
+          discrepancyAlert: calculateFuelDiscrepancyAlert(
+            { ...input, schoolId: user.schoolId, createdAt: timestamp },
+            fuel
+          ),
           createdAt: timestamp
         });
       } else {

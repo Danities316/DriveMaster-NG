@@ -12,6 +12,8 @@ import { createProfileRouter } from "./profileRoutes.js";
 import { createEnrollmentReviewRouter } from "./enrollmentRoutes.js";
 import { changeAccountPassword } from "../auth/passwordRecovery.js";
 import { securityLimit } from "../middleware/securityLimits.js";
+import { validPermitDate } from "@drivemaster/shared";
+import { writeAuditLog } from "../audit.js";
 
 export function createTrainingRouter(options: { authSecret: string; authDeps: AuthDeps }) {
   const router = Router();
@@ -95,14 +97,12 @@ export function createTrainingRouter(options: { authSecret: string; authDeps: Au
         skip: offset,
         take: 101
       });
-      res
-        .set("Cache-Control", "no-store")
-        .json({
-          accounts: rows
-            .slice(0, 100)
-            .map(({ sessionVersion, ...row }) => ({ ...row, version: sessionVersion })),
-          hasMore: rows.length > 100
-        });
+      res.set("Cache-Control", "no-store").json({
+        accounts: rows
+          .slice(0, 100)
+          .map(({ sessionVersion, ...row }) => ({ ...row, version: sessionVersion })),
+        hasMore: rows.length > 100
+      });
     } catch (e) {
       next(
         e instanceof ZodError
@@ -143,7 +143,21 @@ export function createTrainingRouter(options: { authSecret: string; authDeps: Au
       const input = z
         .discriminatedUnion("role", [
           z.object({
-            role: z.enum(["INSTRUCTOR", "RECEPTIONIST"]),
+            role: z.literal("INSTRUCTOR"),
+            name: z.string().trim().min(1, "Enter the instructor's name.").max(100),
+            phone: z.string().trim().min(1, "Enter the instructor's phone number.").max(30),
+            password: z.string().min(10, "Use at least 10 characters for the password.").max(128),
+            permitExpiryDate: z
+              .string()
+              .trim()
+              .optional()
+              .refine(
+                (value) => !value || validPermitDate(value),
+                "Enter a real instructor permit expiry date."
+              )
+          }),
+          z.object({
+            role: z.literal("RECEPTIONIST"),
             name: z.string().trim().min(1, "Enter the instructor's name.").max(100),
             phone: z.string().trim().min(1, "Enter the instructor's phone number.").max(30),
             password: z.string().min(10, "Use at least 10 characters for the password.").max(128)
@@ -198,17 +212,19 @@ export function createTrainingRouter(options: { authSecret: string; authDeps: Au
             role: input.role,
             passwordHash,
             schoolId: owner.schoolId,
-            studentId: student?.id ?? null
+            studentId: student?.id ?? null,
+            permitExpiryDate: input.role === "INSTRUCTOR" ? input.permitExpiryDate || null : null
           }
         });
-        await tx.auditLog.create({
-          data: {
-            userId: owner.id,
-            schoolId: owner.schoolId,
-            action: "CREATE",
-            entity: "training_account",
-            entityId: account.id,
-            metadata: { role: input.role, studentId: student?.id ?? null }
+        await writeAuditLog(tx, {
+          userId: owner.id,
+          schoolId: owner.schoolId,
+          action: "CREATE",
+          entity: "training_account",
+          entityId: account.id,
+          metadata: {
+            ...(student ? { entityIds: [student.id] } : {}),
+            changedFields: ["name", "phone", "role", "studentId", "permitExpiryDate"]
           }
         });
       });

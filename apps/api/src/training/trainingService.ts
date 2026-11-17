@@ -3,6 +3,7 @@ import { z } from "zod";
 import type { Prisma, User } from "@prisma/client";
 import { getPrismaClient } from "../prisma.js";
 import { KnownApiError } from "../middleware/errorHandler.js";
+import { writeAuditLog } from "../audit.js";
 import { schoolRulesInput } from "./schoolRulesInput.js";
 import { enrollmentSettingsInput } from "./enrollmentRoutes.js";
 import type { EnrollmentSettings } from "@drivemaster/shared";
@@ -59,8 +60,8 @@ const commandSchema = z.object({
 });
 const json = (value: unknown): Prisma.InputJsonValue =>
   JSON.parse(JSON.stringify(value)) as Prisma.InputJsonValue;
-const fail = (message: string, status = 400): never => {
-  throw new KnownApiError(message, status, "TRAINING_ERROR");
+const fail = (message: string, status = 400, code = "TRAINING_ERROR"): never => {
+  throw new KnownApiError(message, status, code);
 };
 function canonical(value: unknown): string {
   if (Array.isArray(value)) return `[${value.map(canonical).join(",")}]`;
@@ -93,25 +94,46 @@ function checkOverlap(
     if (other.id === ignore || other.data.status === "CANCELLED") continue;
     const o = other.data;
     const end = o.endedAt ?? o.plannedEnd;
-    if (
+    const overlaps =
       Date.parse(outing.plannedStart) < Date.parse(end) &&
-      Date.parse(outing.plannedEnd) > Date.parse(o.startedAt ?? o.plannedStart) &&
-      (o.vehicleId === outing.vehicleId ||
-        o.instructorId === outing.instructorId ||
-        o.members.some(
-          (m) => m.status !== "MISSED" && outing.members.some((n) => n.studentId === m.studentId)
-        ))
-    )
-      fail("The vehicle, instructor or a student already has a lesson at this time.", 409);
-    if (
-      requireIdle &&
-      o.status === "STARTED" &&
-      (o.vehicleId === outing.vehicleId || o.instructorId === outing.instructorId)
-    )
+      Date.parse(outing.plannedEnd) > Date.parse(o.startedAt ?? o.plannedStart);
+    const clashes = [
+      ...(o.vehicleId === outing.vehicleId ? ["vehicle"] : []),
+      ...(o.instructorId === outing.instructorId ? ["instructor"] : []),
+      ...(o.members.some(
+        (m) => m.status !== "MISSED" && outing.members.some((n) => n.studentId === m.studentId)
+      )
+        ? ["student"]
+        : [])
+    ];
+    if (overlaps && clashes.length) {
+      const resources =
+        clashes.length === 1
+          ? `the ${clashes[0]} is`
+          : `the ${clashes.slice(0, -1).join(", ")} and ${clashes[clashes.length - 1]} are`;
       fail(
-        "Finish the current outing before starting or booking another with this instructor or vehicle.",
-        409
+        `This outing conflicts with an existing lesson because ${resources} already booked.`,
+        409,
+        "TRAINING_CONFLICT"
       );
+    }
+    if (requireIdle && o.status === "STARTED") {
+      const activeClashes = [
+        ...(o.vehicleId === outing.vehicleId ? ["vehicle"] : []),
+        ...(o.instructorId === outing.instructorId ? ["instructor"] : [])
+      ];
+      if (activeClashes.length) {
+        const resources =
+          activeClashes.length === 1
+            ? `the ${activeClashes[0]} is`
+            : `the ${activeClashes.join(" and ")} are`;
+        fail(
+          `Finish the current outing before using ${resources} already assigned.`,
+          409,
+          "TRAINING_CONFLICT"
+        );
+      }
+    }
   }
 }
 
@@ -192,12 +214,13 @@ export async function executeTraining(
           .object({
             vehicleId: id,
             insuranceExpiryDate: expiry,
+            vehicleLicenceExpiryDate: expiry,
             roadworthinessExpiryDate: expiry,
             reason: text
           })
           .parse(command.data);
-        if (!(await tx.vehicle.findFirst({ where: { id: input.vehicleId, schoolId } })))
-          fail("Choose a vehicle from your school.");
+        const vehicle = await tx.vehicle.findFirst({ where: { id: input.vehicleId, schoolId } });
+        if (!vehicle) fail("Choose a vehicle from your school.");
         if (
           vehicleDocuments.some(
             (r) => r.data.vehicleId === input.vehicleId && r.id !== command.targetId
@@ -206,6 +229,14 @@ export async function executeTraining(
           fail("Edit the existing vehicle documents.", 409);
         if (old && (old.data as unknown as VehicleDocuments).vehicleId !== input.vehicleId)
           fail("This document record belongs to another vehicle.", 409);
+        await tx.vehicle.update({
+          where: { id: input.vehicleId, schoolId },
+          data: {
+            insuranceExpiryDate: input.insuranceExpiryDate,
+            vehicleLicenceExpiryDate: input.vehicleLicenceExpiryDate,
+            roadworthinessExpiryDate: input.roadworthinessExpiryDate
+          }
+        });
         data = input;
       } else if (action === "EXPENSE" || action === "VOID_EXPENSE") {
         owner(user);
@@ -786,14 +817,18 @@ export async function executeTraining(
         await tx.trainingRecord.create({
           data: { id: command.targetId, schoolId, kind, data: json(data) }
         });
-      await tx.auditLog.create({
-        data: {
-          schoolId,
-          userId: actorId,
-          action,
-          entity: `training_${kind}`,
-          entityId: command.targetId,
-          metadata: { commandId: command.id, before: old?.data ?? null, after: json(data) }
+      const currentData = data as Record<string, unknown>;
+      const previousData = old?.data as Record<string, unknown> | undefined;
+      await writeAuditLog(tx, {
+        schoolId,
+        userId: actorId,
+        action,
+        entity: `training_${kind}`,
+        entityId: command.targetId,
+        metadata: {
+          changedFields: Object.keys(currentData).filter(
+            (field) => !old || canonical(previousData?.[field]) !== canonical(currentData[field])
+          )
         }
       });
       await tx.trainingReceipt.create({
@@ -1061,7 +1096,21 @@ export async function trainingSnapshot(
       instructors,
       vehicles: vehicles
         .filter((v) => assigned.some((o) => o.data.vehicleId === v.id))
-        .map(({ id, plateNumber }) => ({ id, plateNumber })),
+        .map(
+          ({
+            id,
+            plateNumber,
+            insuranceExpiryDate,
+            vehicleLicenceExpiryDate,
+            roadworthinessExpiryDate
+          }) => ({
+            id,
+            plateNumber,
+            insuranceExpiryDate,
+            vehicleLicenceExpiryDate,
+            roadworthinessExpiryDate
+          })
+        ),
       students: students
         .filter((s) => ids.has(s.id))
         .map(({ id, name }) => ({ id, name, totalTuition: "0.00" }))
@@ -1119,7 +1168,21 @@ export async function trainingSnapshot(
       hasAccount: accountIds.has(id),
       totalTuition: totalTuition.toFixed(2)
     })),
-    vehicles: vehicles.map(({ id, plateNumber }) => ({ id, plateNumber })),
+    vehicles: vehicles.map(
+      ({
+        id,
+        plateNumber,
+        insuranceExpiryDate,
+        vehicleLicenceExpiryDate,
+        roadworthinessExpiryDate
+      }) => ({
+        id,
+        plateNumber,
+        insuranceExpiryDate,
+        vehicleLicenceExpiryDate,
+        roadworthinessExpiryDate
+      })
+    ),
     instructors
   };
 }

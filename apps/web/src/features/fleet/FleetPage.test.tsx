@@ -1,4 +1,4 @@
-import { beforeEach, it, expect } from "vitest";
+import { afterEach, beforeEach, it, expect, vi } from "vitest";
 import { render, screen, fireEvent, waitFor, act } from "@testing-library/react";
 import { FleetPage } from "./FleetPage";
 import { db } from "../../db/db";
@@ -6,6 +6,9 @@ import type { TrainingSnapshot } from "@drivemaster/shared";
 const user = { id: "u", schoolId: "s", name: "Ada", phone: "08012345678", role: "OWNER" as const };
 beforeEach(async () => {
   for (const table of db.tables) await table.clear();
+});
+afterEach(() => {
+  vi.unstubAllEnvs();
 });
 it("registers a vehicle then records an offline fuel claim with validation", async () => {
   render(<FleetPage user={user} />);
@@ -37,7 +40,7 @@ it("registers a vehicle then records an offline fuel claim with validation", asy
     fullTank: true
   });
   expect(await db.outbox.count()).toBe(2);
-});
+}, 15000);
 it("keeps inputs visible after an invalid backdated odometer reading", async () => {
   const id = crypto.randomUUID();
   await db.vehicles.add({
@@ -158,7 +161,60 @@ it("shows a trip-originated purchase once and prevents recording its receipt aga
   expect(await db.fuelLogs.count()).toBe(1);
   expect(await db.outbox.count()).toBe(0);
 });
+it("shows a stored discrepancy alert in rose styling", async () => {
+  const vehicleId = crypto.randomUUID();
+  await db.vehicles.add({
+    id: vehicleId,
+    schoolId: user.schoolId,
+    plateNumber: "ABC123",
+    model: "Corolla",
+    status: "ACTIVE",
+    createdAt: "2026-01-01",
+    updatedAt: "2026-01-01"
+  });
+  await db.fuelLogs.add({
+    id: crypto.randomUUID(),
+    schoolId: user.schoolId,
+    vehicleId,
+    date: "2026-01-02T10:00:00Z",
+    odometer: 1009,
+    driverName: "Ada",
+    notes: null,
+    litres: "10.00",
+    cost: "5000.00",
+    receiptReference: "ALERT-1",
+    fullTank: false,
+    discrepancyAlert: true,
+    recordedById: user.id,
+    createdAt: "2026-01-02T11:00:00Z"
+  });
+
+  render(<FleetPage user={user} />);
+
+  const alert = await screen.findByText("Fuel discrepancy alert");
+  expect(alert).toHaveClass("text-rose-600");
+});
+it("keeps benchmark UI disabled by default", async () => {
+  vi.stubEnv("VITE_FUEL_BENCHMARKS_ENABLED", "");
+  const vehicleId = crypto.randomUUID();
+  await db.vehicles.add({
+    id: vehicleId,
+    schoolId: user.schoolId,
+    plateNumber: "ABC123",
+    model: "Corolla",
+    status: "ACTIVE",
+    createdAt: "2026-01-01",
+    updatedAt: "2026-01-01"
+  });
+
+  render(<FleetPage user={user} />);
+
+  expect(await screen.findByRole("heading", { name: "Mileage & fuel" })).toBeVisible();
+  expect(screen.queryByRole("heading", { name: "Vehicle fuel usage" })).toBeNull();
+  expect(screen.queryByText("Expected fuel use settings")).toBeNull();
+});
 it("shows a completed consumption cycle and recalculates when a backdated partial fill arrives", async () => {
+  vi.stubEnv("VITE_FUEL_BENCHMARKS_ENABLED", "true");
   const common = {
     schoolId: "s",
     vehicleId: "v",

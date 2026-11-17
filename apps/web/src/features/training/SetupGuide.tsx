@@ -39,10 +39,11 @@ export function SetupGuide({
     },
     {
       title: "Enter monthly instructor pay",
-      detail:
-        "This lets us estimate each student’s training cost. Add pay and planned teaching hours for this month.",
+      detail: ready.instructors
+        ? "This lets us estimate each student’s training cost. Add pay and planned teaching hours for this month."
+        : "Add your first instructor first. Then set monthly pay and planned teaching hours.",
       done: ready.instructorPay,
-      action: () => onStep("setup-pay"),
+      action: () => onStep(ready.instructors ? "setup-pay" : "setup-accounts"),
       allowed: owner
     },
     {
